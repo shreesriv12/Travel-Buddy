@@ -1,5 +1,4 @@
 import prisma from '../config/db.js';
-
 // CREATE a new trip
 export const createTrip = async (req, res) => {
   const userId = req.user.userId;
