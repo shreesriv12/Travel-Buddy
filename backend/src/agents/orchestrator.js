@@ -176,8 +176,9 @@ export async function runMCPOrchestrator(trip, { maxSteps = 6 } = {}) {
       }
 
       let args;
-      try { args = tool.validate(parsed.arguments); } 
-      catch (e) {
+      try {
+        args = tool.validate(parsed.arguments);
+      } catch (e) {
         messages.push(
           new AIMessage(text),
           new HumanMessage(`ARG_ERROR: ${e.message}`)
