@@ -1,16 +1,17 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { weatherAgent } from "./weatherAgent.js";
-import { mapsAgent } from "./mapsAgent.js";
+
 import { budgetAgent } from "./budgetAgent.js";
+import { eventsAgent } from "./eventsAgent.js";
 
 // --------------------
 // Register agents
 // --------------------
 const TOOL_REGISTRY = {
   [weatherAgent.name]: weatherAgent,
-  [mapsAgent.name]: mapsAgent,
   [budgetAgent.name]: budgetAgent,
+  [eventsAgent.name]: eventsAgent,
 };
 
 const TOOL_LIST_FOR_PROMPT = Object.values(TOOL_REGISTRY).map((t) => ({
@@ -44,6 +45,7 @@ Available agents:
 - weatherTool: Fetch weather forecasts.
 - mapsTool: Calculate distance, routes, and travel time.
 - budgetTool: Fetch flight/hotel estimates.
+- eventTool: Fetch upcoming events.
 
 STRICT OUTPUT FORMAT:
 Return ONLY a single JSON object:
