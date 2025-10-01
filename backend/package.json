@@ -23,6 +23,7 @@
     "bcryptjs": "^3.0.2",
     "bull": "^4.16.5",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "ioredis": "^5.8.0",
@@ -30,8 +31,10 @@
     "langchain": "^0.3.35",
     "node-fetch": "^3.3.2",
     "openai": "^5.23.1",
+    "openrouteservice-js": "^0.4.1",
     "prisma": "^6.16.2",
     "redis": "^5.8.2",
+    "serpapi": "^2.2.1",
     "socket.io": "^4.8.1",
     "zod": "^3.25.76"
   },
