@@ -27,10 +27,13 @@ model Trip {
   id              String          @id @default(uuid())
   user_id         String
   title           String
+  origin          String           @default("Unknown")   // default value
+  origin_coords   Json             @default("{}")        // empty JSON
   destination     String
   destination_coords Json
   start_date      DateTime
   end_date        DateTime
+  adults          Int             @default(1)           // default 1 adult
   status          String
   total_budget    Float
   summary         Json
@@ -46,6 +49,7 @@ model Trip {
   agent_tasks     AgentTask[]
   notifications   Notification[]
 }
+
 
 model ItineraryItem {
   id             String   @id @default(uuid())
