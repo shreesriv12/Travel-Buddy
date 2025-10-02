@@ -4,6 +4,7 @@ import { weatherAgent } from "./weatherAgent.js";
 
 import { budgetAgent } from "./budgetAgent.js";
 import { eventsAgent } from "./eventsAgent.js";
+import { itineraryAgent } from "./itineraryAgent.js";
 
 // --------------------
 // Register agents
@@ -12,6 +13,7 @@ const TOOL_REGISTRY = {
   [weatherAgent.name]: weatherAgent,
   [budgetAgent.name]: budgetAgent,
   [eventsAgent.name]: eventsAgent,
+  [itineraryAgent.name]: itineraryAgent,
 };
 
 const TOOL_LIST_FOR_PROMPT = Object.values(TOOL_REGISTRY).map((t) => ({
@@ -46,6 +48,7 @@ Available agents:
 - mapsTool: Calculate distance, routes, and travel time.
 - budgetTool: Fetch flight/hotel estimates.
 - eventTool: Fetch upcoming events.
+- itineraryTool: Combine weather, budget, and events into a daily plan.
 
 STRICT OUTPUT FORMAT:
 Return ONLY a single JSON object:
