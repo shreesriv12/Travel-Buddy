@@ -1,9 +1,6 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
-import { mapsAgent } from "./mapsAgent.js";
-
 import { weatherAgent } from "./weatherAgent.js";
-import { mapsAgent } from "./mapsAgent.js";
 import { budgetAgent } from "./budgetAgent.js";
 
 // --------------------

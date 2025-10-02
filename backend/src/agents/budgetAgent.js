@@ -166,10 +166,54 @@ async function budgetExecute(args) {
   });
 
   return {
-    summary: `Estimated budget calculated for trip ${trip.id}`,
-    budget,
-    flightsData,
-    hotelsData,
+    summary: `Found ${topFlights.length} flights and ${topHotels.length} hotels. Total estimate: ${budget.currency} ${budget.total} (${budget.currency} ${budget.perPerson}/person)`,
+    
+    budget: {
+      total: budget.total,
+      perPerson: budget.perPerson,
+      currency: budget.currency,
+      status: budgetStatus,
+      breakdown: budget.breakdown,
+    },
+
+    flights: {
+      count: topFlights.length,
+      cheapest: topFlights[0] || null,
+      options: topFlights.map(f => ({
+        airline: f.airline,
+        price: `${f.currency} ${f.price}`,
+        duration: f.duration > 0 ? `${Math.floor(f.duration / 60)}h ${f.duration % 60}m` : "N/A",
+        stops: f.stops === 0 ? "Non-stop" : `${f.stops} stop(s)`,
+      })),
+    },
+
+    hotels: {
+      count: topHotels.length,
+      cheapest: topHotels[0] || null,
+      options: topHotels.map(h => ({
+        name: h.name,
+        rating: `${h.rating}/5 (${h.reviewCount} reviews)`,
+        price: `${h.currency} ${h.pricePerNight}/night`,
+        location: h.location,
+      })),
+    },
+
+    recommendations: {
+      bestFlightDeal: topFlights[0]?.airline || "Check airlines directly",
+      bestHotelDeal: topHotels[0]?.name || "Check booking sites",
+      savingTips: [
+        topFlights.length > 1 && topFlights[0]?.stops > 0 ? "Direct flights available at higher price" : "Book early for better deals",
+        `Trip duration: ${tripDuration} days - plan accordingly`,
+        "Compare prices across multiple booking sites",
+      ],
+    },
+
+    tripInfo: {
+      origin: trip.origin,
+      destination: trip.destination,
+      duration: `${tripDuration} day${tripDuration > 1 ? "s" : ""}`,
+      travelers: adults,
+    },
   };
 }
 

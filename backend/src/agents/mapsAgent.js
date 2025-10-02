@@ -1,6 +1,5 @@
 import prisma from "../config/db.js";
 import { z } from "zod";
-import fetch from "node-fetch"; // OSRM HTTP requests
 
 // --------------------
 // Input validation
