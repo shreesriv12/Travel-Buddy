@@ -9,7 +9,8 @@ import { z } from "zod";
 // --------------------
 const BudgetArgs = z.object({
   tripId: z.string().uuid(),
-  airline: z.string().optional(), // optional airline filter
+  airline: z.string().optional(),
+  maxBudget: z.number().optional(),
 });
 
 // --------------------
@@ -72,8 +73,13 @@ async function fetchFlights({ departureKgmid, arrivalKgmid, startDate, endDate, 
 
   if (airline) params.airlines = airline;
 
-  const response = await axios.get("https://serpapi.com/search", { params });
-  return response.data;
+  try {
+    const response = await axios.get("https://serpapi.com/search", { params });
+    return response.data;
+  } catch (error) {
+    console.warn("[Budget Agent] Flight API error:", error.message);
+    return { best_flights: [], other_flights: [] };
+  }
 }
 
 // --------------------
@@ -83,37 +89,130 @@ async function fetchHotels({ destination, startDate, endDate, adults }) {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) throw new Error("SERPAPI_KEY is not set");
 
-  const response = await axios.get("https://serpapi.com/search", {
-    params: {
-      engine: "google_hotels",
-      q: destination,
-      check_in_date: startDate,
-      check_out_date: endDate,
-      adults,
-      sort_by: "8", // cheapest first
-      api_key: apiKey,
-    },
-  });
-
-  return response.data;
+  try {
+    const response = await axios.get("https://serpapi.com/search", {
+      params: {
+        engine: "google_hotels",
+        q: destination,
+        check_in_date: startDate,
+        check_out_date: endDate,
+        adults,
+        sort_by: "8",
+        api_key: apiKey,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.warn("[Budget Agent] Hotel API error:", error.message);
+    return { properties: [] };
+  }
 }
 
 // --------------------
-// Estimate budget
+// Safe number extraction
 // --------------------
-function estimateBudget(flightsData, hotelsData, adults) {
-  const flights = flightsData?.flights || [];
-  const hotels = hotelsData?.hotels || [];
+function safeNumber(value, defaultValue = 0) {
+  const num = parseFloat(value);
+  return isNaN(num) ? defaultValue : num;
+}
 
-  const cheapestFlight =
-    flights.reduce((min, f) => (f.price < min.price ? f : min), flights[0] || { price: 0 }) || { price: 0 };
-  const cheapestHotel =
-    hotels.reduce((min, h) => (h.price < min.price ? h : min), hotels[0] || { price: 0 }) || { price: 0 };
+// --------------------
+// Process and filter flight options
+// --------------------
+function processFlights(flightsData, maxResults = 3) {
+  const bestFlights = flightsData?.best_flights || [];
+  const otherFlights = flightsData?.other_flights || [];
+  const allFlights = [...bestFlights, ...otherFlights];
+  
+  if (allFlights.length === 0) {
+    console.warn("[Budget Agent] No flights found in API response");
+    return [];
+  }
+
+  return allFlights.slice(0, maxResults).map(flight => {
+    const firstFlight = flight.flights?.[0] || {};
+    const lastFlight = flight.flights?.[flight.flights?.length - 1] || {};
+    
+    return {
+      airline: firstFlight.airline || "Unknown Airline",
+      flightNumber: firstFlight.flight_number || "N/A",
+      departure: firstFlight.departure_airport?.time || "N/A",
+      arrival: lastFlight.arrival_airport?.time || "N/A",
+      duration: safeNumber(flight.total_duration, 0),
+      stops: Math.max(0, (flight.flights?.length || 1) - 1),
+      price: safeNumber(flight.price, 500), // fallback to $500
+      currency: flight.currency || "USD",
+      carbonEmissions: safeNumber(flight.carbon_emissions?.this_flight, 0),
+    };
+  });
+}
+
+// --------------------
+// Process and filter hotel options
+// --------------------
+function processHotels(hotelsData, maxResults = 3) {
+  const hotels = hotelsData?.properties || [];
+  
+  if (hotels.length === 0) {
+    console.warn("[Budget Agent] No hotels found in API response");
+    return [];
+  }
+
+  return hotels.slice(0, maxResults).map(hotel => {
+    const pricePerNight = safeNumber(
+      hotel.rate_per_night?.lowest || 
+      hotel.rate_per_night?.extracted_lowest,
+      100 // fallback to $100/night
+    );
+    
+    const totalPrice = safeNumber(
+      hotel.total_rate?.lowest || 
+      hotel.total_rate?.extracted_lowest,
+      pricePerNight * 3 // estimate 3 nights
+    );
+
+    return {
+      name: hotel.name || "Unknown Hotel",
+      rating: safeNumber(hotel.overall_rating, 3.5),
+      reviewCount: safeNumber(hotel.reviews, 0),
+      pricePerNight,
+      totalPrice,
+      currency: "USD",
+      amenities: (hotel.amenities || []).slice(0, 5),
+      location: hotel.nearby_places?.[0]?.name || "City Center",
+      checkIn: hotel.check_in_time || "3:00 PM",
+      checkOut: hotel.check_out_time || "11:00 AM",
+    };
+  });
+}
+
+// --------------------
+// Calculate budget breakdown
+// --------------------
+function calculateBudget(flights, hotels, adults, tripDuration) {
+  // Use cheapest options or reasonable defaults
+  const cheapestFlight = flights.length > 0 ? flights[0] : null;
+  const cheapestHotel = hotels.length > 0 ? hotels[0] : null;
+
+  const flightCost = cheapestFlight ? safeNumber(cheapestFlight.price * adults, 1000) : 1000;
+  const hotelCost = cheapestHotel ? safeNumber(cheapestHotel.totalPrice, 300) : 300;
+  const estimatedFood = tripDuration * adults * 50;
+  const estimatedLocal = tripDuration * 30;
+  const miscellaneous = Math.round((flightCost + hotelCost) * 0.1);
+
+  const totalEstimate = Math.round(flightCost + hotelCost + estimatedFood + estimatedLocal + miscellaneous);
 
   return {
-    estimatedTotalCost: (cheapestFlight.price + cheapestHotel.price) * adults,
-    cheapestFlight,
-    cheapestHotel,
+    breakdown: {
+      flights: Math.round(flightCost),
+      accommodation: Math.round(hotelCost),
+      food: Math.round(estimatedFood),
+      localTransport: Math.round(estimatedLocal),
+      miscellaneous,
+    },
+    total: totalEstimate,
+    perPerson: Math.round(totalEstimate / adults),
+    currency: cheapestFlight?.currency || "USD",
   };
 }
 
@@ -121,19 +220,24 @@ function estimateBudget(flightsData, hotelsData, adults) {
 // Main execute function
 // --------------------
 async function budgetExecute(args) {
-  const { tripId, airline } = BudgetArgs.parse(args);
+  const { tripId, airline, maxBudget } = BudgetArgs.parse(args);
 
-  // Fetch trip from Prisma Trips table
+  // 1. Fetch trip
   const trip = await prisma.trip.findUnique({ where: { id: tripId } });
   if (!trip) throw new Error("Trip not found");
 
   const adults = trip.adults || 1;
+  const tripDuration = Math.max(1, Math.ceil(
+    (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
+  ));
 
-  // 1. Get kgmid codes from trip origin & destination
+  // 2. Get kgmid codes
+  console.log(`[Budget Agent] Fetching location codes for ${trip.origin} → ${trip.destination}`);
   const departureKgmid = await fetchKgmid(trip.origin);
   const arrivalKgmid = await fetchKgmid(trip.destination);
 
-  // 2. Fetch flights & hotels
+  // 3. Fetch flights & hotels
+  console.log(`[Budget Agent] Searching flights and hotels...`);
   const flightsData = await fetchFlights({
     departureKgmid,
     arrivalKgmid,
@@ -150,21 +254,87 @@ async function budgetExecute(args) {
     adults,
   });
 
-  // 3. Calculate budget
-  const budget = estimateBudget(flightsData, hotelsData, adults);
+  // 4. Process options (top 3 each)
+  const topFlights = processFlights(flightsData, 3);
+  const topHotels = processHotels(hotelsData, 3);
 
-  // 4. Save BudgetItem linked to Trips table
+  console.log(`[Budget Agent] Found ${topFlights.length} flights, ${topHotels.length} hotels`);
+
+  // 5. Calculate budget
+  const budget = calculateBudget(topFlights, topHotels, adults, tripDuration);
+
+  // Ensure we have a valid total
+  if (isNaN(budget.total) || budget.total <= 0) {
+    throw new Error("Failed to calculate valid budget estimate");
+  }
+
+  // 6. Check budget constraint
+  const withinBudget = maxBudget ? budget.total <= maxBudget : true;
+  const budgetStatus = withinBudget ? "Within Budget" : "Over Budget";
+
+  // 7. Store in database with proper relation
   await prisma.budgetItem.create({
     data: {
-      trip_id: trip.id,
+      trip: {
+        connect: { id: trip.id }
+      },
       category: "Travel + Accommodation",
       item_name: "Estimated Trip Cost",
-      estimated_amount: budget.estimatedTotalCost,
+      estimated_amount: budget.total,
       actual_amount: 0,
       status: "Pending",
     },
   });
 
+  // Store flight options (if available)
+  for (const flight of topFlights) {
+    try {
+      await prisma.flight.create({
+        data: {
+          trip: {
+            connect: { id: trip.id }
+          },
+          airline: flight.airline,
+          flight_number: flight.flightNumber,
+          departure_airport: trip.origin,
+          arrival_airport: trip.destination,
+          departure_time: new Date(flight.departure),
+          arrival_time: new Date(flight.arrival),
+          price: flight.price,
+          booking_url: null,
+          is_recommended: topFlights.indexOf(flight) === 0,
+        },
+      });
+    } catch (dbError) {
+      console.warn(`[Budget Agent] Failed to store flight: ${dbError.message}`);
+    }
+  }
+
+  // Store hotel options (if available)
+  for (const hotel of topHotels) {
+    try {
+      await prisma.hotel.create({
+        data: {
+          trip: {
+            connect: { id: trip.id }
+          },
+          name: hotel.name,
+          location: hotel.location,
+          price_per_night: hotel.pricePerNight,
+          rating: hotel.rating,
+          amenities: hotel.amenities,
+          booking_url: null,
+          is_recommended: topHotels.indexOf(hotel) === 0,
+        },
+      });
+    } catch (dbError) {
+      console.warn(`[Budget Agent] Failed to store hotel: ${dbError.message}`);
+    }
+  }
+
+  console.log(`[Budget Agent] ✅ Budget calculated: ${budget.currency} ${budget.total}`);
+
+  // 8. Return optimized output for UI
   return {
     summary: `Found ${topFlights.length} flights and ${topHotels.length} hotels. Total estimate: ${budget.currency} ${budget.total} (${budget.currency} ${budget.perPerson}/person)`,
     
@@ -223,12 +393,13 @@ async function budgetExecute(args) {
 export const budgetAgent = {
   name: "budgetAgent",
   description:
-    "Fetches flights and hotels for a trip using origin & destination from Trips table, estimates total budget, and stores it in BudgetItem linked to Trips table.",
+    "AI-powered budget optimizer that finds best flights and hotels, compares prices, and provides cost breakdown with money-saving recommendations.",
   jsonSchema: {
     type: "object",
     properties: {
       tripId: { type: "string", description: "Trip UUID" },
       airline: { type: "string", description: "Optional airline code to filter flights" },
+      maxBudget: { type: "number", description: "Optional maximum budget constraint" },
     },
     required: ["tripId"],
   },

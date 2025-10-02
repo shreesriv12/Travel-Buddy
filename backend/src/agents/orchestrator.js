@@ -1,15 +1,19 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { weatherAgent } from "./weatherAgent.js";
+
 import { budgetAgent } from "./budgetAgent.js";
+import { eventsAgent } from "./eventsAgent.js";
+import { itineraryAgent } from "./itineraryAgent.js";
 
 // --------------------
 // Register agents
 // --------------------
 const TOOL_REGISTRY = {
   [weatherAgent.name]: weatherAgent,
-  [mapsAgent.name]: mapsAgent,
   [budgetAgent.name]: budgetAgent,
+  [eventsAgent.name]: eventsAgent,
+  [itineraryAgent.name]: itineraryAgent,
 };
 
 const TOOL_LIST_FOR_PROMPT = Object.values(TOOL_REGISTRY).map((t) => ({
@@ -43,6 +47,8 @@ Available agents:
 - weatherTool: Fetch weather forecasts.
 - mapsTool: Calculate distance, routes, and travel time.
 - budgetTool: Fetch flight/hotel estimates.
+- eventTool: Fetch upcoming events.
+- itineraryTool: Combine weather, budget, and events into a daily plan.
 
 STRICT OUTPUT FORMAT:
 Return ONLY a single JSON object:
@@ -175,9 +181,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 6 } = {}) {
       }
 
       let args;
-      try {
-        args = tool.validate(parsed.arguments);
-      } catch (e) {
+      try { args = tool.validate(parsed.arguments); } 
+      catch (e) {
         messages.push(
           new AIMessage(text),
           new HumanMessage(`ARG_ERROR: ${e.message}`)
