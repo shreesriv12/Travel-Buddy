@@ -1,19 +1,19 @@
-import prisma from "../config/db.js";
-import { runMCPOrchestrator } from "../agents/orchestrator.js";
+import { createTripAndRunOrchestrator } from "../agents/tripAgent.js"; // updated import
 
 export async function runTripAgents(req, res) {
-  const { tripId } = req.params;
+  const { userId, prompt } = req.body;
+
+  if (!userId || !prompt) {
+    return res.status(400).json({ error: "userId and prompt are required" });
+  }
 
   try {
-    const trip = await prisma.trip.findUnique({ where: { id: tripId } });
+    const tripWithOrchestrator = await createTripAndRunOrchestrator({ userId, prompt });
 
-    if (!trip) return res.status(404).json({ error: "Trip not found" });
+    res.json(tripWithOrchestrator);
 
-    const result = await runMCPOrchestrator(trip, { maxSteps: 4 });
-
-    res.json(result);
   } catch (err) {
-    console.error(err);
+    console.error("Trip workflow failed:", err);
     res.status(500).json({ error: err.message });
   }
 }
