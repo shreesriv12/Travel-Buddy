@@ -387,19 +387,15 @@ async function budgetExecute(args) {
   };
 }
 
-// --------------------
-// Export agent
-// --------------------
 export const budgetAgent = {
   name: "budgetAgent",
-  description:
-    "AI-powered budget optimizer that finds best flights and hotels, compares prices, and provides cost breakdown with money-saving recommendations.",
+  description: "Finds best flights and hotels, provides cost breakdown and recommendations.",
   jsonSchema: {
     type: "object",
     properties: {
-      tripId: { type: "string", description: "Trip UUID" },
-      airline: { type: "string", description: "Optional airline code to filter flights" },
-      maxBudget: { type: "number", description: "Optional maximum budget constraint" },
+      tripId: { type: "string" },
+      airline: { type: "string" },
+      maxBudget: { type: "number" },
     },
     required: ["tripId"],
   },
