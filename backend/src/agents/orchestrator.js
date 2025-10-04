@@ -19,6 +19,7 @@ const TOOL_REGISTRY = {
   [eventsAgent.name]: eventsAgent,
   [itineraryAgent.name]: itineraryAgent,
   [mapsAgent.name]: mapsAgent,
+  [flightAgent.name]: flightAgent, 
 };
 
 const TOOL_LIST_FOR_PROMPT = Object.values(TOOL_REGISTRY).map(t => ({
@@ -187,6 +188,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
 
   // Agent execution flags
   let weatherDone = false;
+  let flightDone = false;
   let budgetDone = false;
   let eventsDone = false;
   let itineraryDone = false;
