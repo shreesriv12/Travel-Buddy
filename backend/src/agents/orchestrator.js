@@ -8,6 +8,7 @@ import { budgetAgent } from "./budgetAgent.js";
 import { eventsAgent } from "./eventsAgent.js";
 import { itineraryAgent } from "./itineraryAgent.js";
 import { mapsAgent } from "./mapsAgent.js";
+import { flightAgent } from "./flightAgent.js";
 import prisma from "../config/db.js";
 
 // --------------------
