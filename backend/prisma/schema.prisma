@@ -37,6 +37,10 @@ model Trip {
   status          String
   total_budget    Float
   summary         Json
+  // New fields for flights, hotels, and news
+  flights_data    Json?            @default("null")      // JSON data for flights
+  hotels_data     Json?            @default("null")      // JSON data for hotels
+  news_data       Json?            @default("null")      // JSON data for news/articles
   created_at      DateTime        @default(now())
   updated_at      DateTime        @updatedAt
 
@@ -49,7 +53,6 @@ model Trip {
   agent_tasks     AgentTask[]
   notifications   Notification[]
 }
-
 
 model ItineraryItem {
   id             String   @id @default(uuid())
