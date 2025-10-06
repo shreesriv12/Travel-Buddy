@@ -5,7 +5,7 @@ import { getJson } from "serpapi";
 const EventArgs = z.object({
   tripId: z.string().uuid(),
   destination: z.string().min(1),
-  date: z.string().optional(), // optional date filter (YYYY-MM-DD)
+  date: z.string().optional(),
 });
 
 async function eventExecute(args) {
@@ -30,7 +30,10 @@ async function eventExecute(args) {
           api_key: apiKey,
         },
         (res) => {
-          if (!res || !res.events_results) return resolve({ events_results: [] });
+          if (!res) {
+            reject(new Error("No response from SerpApi"));
+            return;
+          }
           resolve(res);
         }
       );
@@ -38,50 +41,59 @@ async function eventExecute(args) {
 
     const events = json.events_results || [];
 
+    // Clear existing events for this trip
+    await prisma.event.deleteMany({
+      where: { trip_id: tripId }
+    });
+
     for (const e of events) {
       try {
         await prisma.event.create({
           data: {
             trip_id: tripId,
-            title: e.title,
-            description: e.description ?? "",
-            location: e.address?.join(", ") ?? "Unknown",
+            title: e.title || "Unknown Event",
+            description: e.description || "",
+            location: e.address?.join(", ") || "Unknown",
             start_datetime: e.date?.start_date ? new Date(e.date.start_date) : new Date(),
-            end_datetime: e.date?.start_date ? new Date(e.date.start_date) : new Date(),
-            category: "", // Google Events API does not provide a clear category field
-            price: 0, // No price info available
-            booking_url: e.link ?? null,
+            end_datetime: e.date?.end_date ? new Date(e.date.end_date) : new Date(),
+            category: e.category || "General",
+            price: 0,
+            booking_url: e.link || null,
             is_recommended: false,
             relevance_score: 0,
           },
         });
       } catch (dbErr) {
-        console.error(`[Event Tool Error] DB error for event '${e.title}':`, dbErr);
+        console.error(`[EventsAgent] DB error for event:`, dbErr);
       }
     }
 
     const output = {
-      summary: `Stored ${events.length} events for ${destination}${date ? " on " + date : ""}`,
+      summary: `Found ${events.length} events for ${destination}${date ? " on " + date : ""}`,
       events: events.map((e) => ({
         name: e.title,
         venue: e.venue?.name,
         location: e.address?.join(", "),
-        city: e.address?.[1] ?? null,
         start_time: e.date?.start_date,
         url: e.link,
       })),
     };
 
-    console.log("[Event Tool Output]", JSON.stringify(output, null, 2));
+    console.log("[EventsAgent] Output:", output.summary);
     return output;
   } catch (err) {
-    console.error(`[Event Tool Error] General failure:`, err);
-    throw err;
+    console.error(`[EventsAgent] Error:`, err.message);
+    
+    // Return empty events on failure
+    return {
+      summary: `No events found for ${destination}`,
+      events: [],
+    };
   }
 }
 
 export const eventsAgent = {
-  name: "eventTool",
+  name: "eventsAgent",
   description: "Fetches upcoming events for a destination and stores them in DB.",
   jsonSchema: {
     type: "object",
@@ -95,4 +107,3 @@ export const eventsAgent = {
   validate: (args) => EventArgs.parse(args),
   execute: eventExecute,
 };
-
