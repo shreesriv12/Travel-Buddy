@@ -1,7 +1,6 @@
 import express from 'express';
 import authRoutes from './src/routes/auth.routes.js';
 import agentRoutes from './src/routes/agent.routes.js';
-import tripRoutes from './src/routes/trip.routes.js';
 import cors from 'cors';
 const app = express();
 // Enable CORS
