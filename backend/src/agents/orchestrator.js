@@ -9,8 +9,6 @@ import { flightAgent } from "./flightAgent.js";
 import { newsAgent } from "./newsAgent.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import prisma from "../config/db.js";
-import { hotelsAgent } from "./hotelsAgent.js";
-import { newsAgent } from "./newsAgent.js";
 
 // --------------------
 // System Prompt for AI Orchestrator
