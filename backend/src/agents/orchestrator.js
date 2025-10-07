@@ -6,6 +6,8 @@ import { eventsAgent } from "./eventsAgent.js";
 import { itineraryAgent } from "./itineraryAgent.js";
 import { mapsAgent } from "./mapsAgent.js";
 import { flightAgent } from "./flightAgent.js";
+import { newsAgent } from "./newsAgent.js";
+import { hotelsAgent } from "./hotelsAgent.js";
 import prisma from "../config/db.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import { newsAgent } from "./newsAgent.js";
@@ -148,6 +150,15 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   });
 
   const previousToolResults = [];
+  const collectedData = {
+    flights: null,
+    hotels: null,
+    news: null,
+    weather: null,
+    events: null,
+    itinerary: null,
+    budget: null
+  };
 
   try {
     // Log the system prompt being used
@@ -155,7 +166,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     console.log(getOrchestratorPrompt(trip).substring(0, 200) + "...\n");
 
     // ============================================
-    // 1️⃣ WEATHER AGENT (Always first)
+    // 1️⃣ WEATHER AGENT
     // ============================================
     console.log("[Orchestrator] Executing weatherAgent...");
     try {
@@ -166,9 +177,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         endDate: trip.end_date?.toISOString().split('T')[0]
       });
 
+      await storeWeatherData(trip.id, result);
+      collectedData.weather = result;
+      
       previousToolResults.push({
         tool: weatherAgent.name,
-        resultSummary: result.summary || "Weather data fetched",
+        status: 'SUCCESS',
+        resultSummary: result.summary || "Weather data fetched and stored",
         result
       });
       console.log("[Orchestrator] ✅ weatherAgent completed");
@@ -176,13 +191,14 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.error("[Orchestrator] ❌ weatherAgent failed:", error.message);
       previousToolResults.push({
         tool: weatherAgent.name,
+        status: 'FAILED',
         resultSummary: "Weather data fetch failed",
         error: error.message
       });
     }
 
     // ============================================
-    // 2️⃣ FLIGHT AGENT (Find flights)
+    // 2️⃣ FLIGHT AGENT
     // ============================================
     console.log("[Orchestrator] Executing flightAgent...");
     try {
@@ -196,9 +212,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         tripId: trip.id // <-- CRITICAL FIX: Passing the tripId
       });
 
+      await storeFlightData(trip.id, result);
+      collectedData.flights = result;
+      
       previousToolResults.push({
         tool: flightAgent.name,
-        resultSummary: result.summary || "Flights found",
+        status: 'SUCCESS',
+        resultSummary: result.summary || "Flights found and stored",
         result
       });
       console.log("[Orchestrator] ✅ flightAgent completed");
@@ -206,6 +226,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.error("[Orchestrator] ❌ flightAgent failed:", error.message);
       previousToolResults.push({
         tool: flightAgent.name,
+        status: 'FAILED',
         resultSummary: "Flight search failed",
         error: error.message
       });
@@ -283,8 +304,11 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         adults: trip.adults || 1
       });
 
+      collectedData.budget = result;
+      
       previousToolResults.push({
         tool: budgetAgent.name,
+        status: 'SUCCESS',
         resultSummary: result.summary || "Budget calculated",
         result
       });
@@ -293,6 +317,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.error("[Orchestrator] ❌ budgetAgent failed:", error.message);
       previousToolResults.push({
         tool: budgetAgent.name,
+        status: 'FAILED',
         resultSummary: "Budget calculation failed",
         error: error.message
       });
@@ -310,9 +335,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         date: trip.start_date?.toISOString().split('T')[0]
       });
 
+      await storeEventsData(trip.id, result);
+      collectedData.events = result;
+      
       previousToolResults.push({
         tool: eventsAgent.name,
-        resultSummary: result.summary || "Events fetched",
+        status: 'SUCCESS',
+        resultSummary: result.summary || "Events fetched and stored",
         result
       });
       console.log("[Orchestrator] ✅ eventsAgent completed");
@@ -320,6 +349,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.warn("[Orchestrator] ⚠️  eventsAgent failed:", error.message);
       previousToolResults.push({
         tool: eventsAgent.name,
+        status: 'FAILED',
         resultSummary: "Events fetch failed",
         error: error.message
       });
@@ -344,12 +374,18 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         startDate: trip.start_date?.toISOString().split('T')[0],
         adults: trip.adults || 1,
         children: trip.children || 0,
-        budgetResult
+        budgetResult: collectedData.budget,
+        eventsResult: collectedData.events,
+        hotelResult: collectedData.hotels
       });
 
+      await storeItineraryData(trip.id, result);
+      collectedData.itinerary = result;
+      
       previousToolResults.push({
         tool: itineraryAgent.name,
-        resultSummary: result.summary || "Itinerary generated",
+        status: 'SUCCESS',
+        resultSummary: result.summary || "Itinerary generated and stored",
         result
       });
       console.log("[Orchestrator] ✅ itineraryAgent completed");
@@ -357,6 +393,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.error("[Orchestrator] ❌ itineraryAgent failed:", error.message);
       previousToolResults.push({
         tool: itineraryAgent.name,
+        status: 'FAILED',
         resultSummary: "Itinerary generation failed",
         error: error.message
       });
@@ -375,6 +412,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
 
       previousToolResults.push({
         tool: mapsAgent.name,
+        status: 'SUCCESS',
         resultSummary: result.summary || "Routes calculated",
         result
       });
@@ -383,6 +421,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.warn("[Orchestrator] ⚠️  mapsAgent failed:", error.message);
       previousToolResults.push({
         tool: mapsAgent.name,
+        status: 'FAILED',
         resultSummary: "Route calculation failed",
         error: error.message
       });
@@ -426,14 +465,29 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
       aiGeneratedInsights = "Trip planning completed successfully with all available data.";
     }
 
-    // Fetch complete itinerary from DB
-    const itineraryItems = await prisma.itineraryItem.findMany({
-      where: { trip_id: trip.id },
-      orderBy: [{ day_number: "asc" }, { sort_order: "asc" }]
-    });
-
-    const successfulTools = previousToolResults.filter(r => !r.error).length;
-    const totalTools = previousToolResults.length;
+    // Fetch all data from database for complete response
+    const [dbItinerary, dbWeather, dbEvents, tripData] = await Promise.all([
+      prisma.itineraryItem.findMany({
+        where: { trip_id: trip.id },
+        orderBy: [{ day_number: "asc" }, { sort_order: "asc" }]
+      }),
+      prisma.weatherData.findMany({
+        where: { trip_id: trip.id },
+        orderBy: { date: "asc" }
+      }),
+      prisma.event.findMany({
+        where: { trip_id: trip.id },
+        orderBy: { start_datetime: "asc" }
+      }),
+      prisma.trip.findUnique({
+        where: { id: trip.id },
+        select: { 
+          flights_data: true, 
+          hotels_data: true,
+          news_data: true 
+        }
+      })
+    ]);
 
     const finalAnswer = {
       status: successfulTools === totalTools ? "COMPLETE_SUCCESS" : "PARTIAL_SUCCESS",
@@ -441,9 +495,11 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
       aiInsights: aiGeneratedInsights,
       tripSummary: {
         destination: trip.destination,
+        startDate: trip.start_date,
+        endDate: trip.end_date,
         duration: `${Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24))} days`,
         travelers: `${trip.adults || 1} adult(s)`,
-        budget: previousToolResults.find(r => r.tool === budgetAgent.name)?.result?.budget || {}
+        status: 'PLANNING_COMPLETED'
       },
       itinerary: itineraryItems,
       toolResults: previousToolResults,
@@ -454,6 +510,20 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
         executionTime: new Date().toISOString()
       }
     };
+
+    // Update trip status in database
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: {
+        status: 'COMPLETED',
+        summary: {
+          totalCost: detailedResponse.summary.totalCostEstimate,
+          duration: detailedResponse.tripInfo.duration,
+          highlights: detailedResponse.summary.keyAttractions,
+          recommendation: 'Trip planning completed successfully'
+        }
+      }
+    });
 
     console.log("\n=== Orchestrator Completed Successfully ===");
     console.log(`[Orchestrator] Status: ${finalAnswer.status}`);
@@ -474,7 +544,12 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
       status: "FAILED",
       message: "Orchestrator failed to complete",
       error: error.message,
-      toolResults: previousToolResults
+      partialData: collectedData,
+      toolResults: previousToolResults,
+      timestamps: {
+        planningStarted: new Date().toISOString(),
+        errorOccurred: new Date().toISOString()
+      }
     };
   }
 }
