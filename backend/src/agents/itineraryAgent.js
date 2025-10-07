@@ -2,6 +2,7 @@ import { z } from "zod";
 import prisma from "../config/db.js";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage } from "@langchain/core/messages";
+import { sendTripItineraryEmail } from "../utils/emailUtils.js";
 
 // --------------------
 // Argument schema
@@ -93,19 +94,47 @@ function formatDate(date) {
 }
 
 // --------------------
+// Send itinerary notification email
+// --------------------
+async function sendItineraryNotification(tripId, userEmail) {
+  try {
+    console.log(`[ItineraryAgent] Attempting to send email to: ${userEmail}`);
+    
+    if (userEmail && process.env.EMAIL_USER) {
+      await sendTripItineraryEmail(tripId, userEmail);
+      console.log(`✅ Itinerary email sent to ${userEmail}`);
+      return true;
+    } else {
+      console.log('⚠️ Email not configured or user email not available');
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Failed to send itinerary email:', error.message);
+    // Don't throw error - email failure shouldn't break itinerary generation
+    return false;
+  }
+}
+
+// --------------------
 // Main Execute
 // --------------------
 export async function itineraryExecute(rawArgs) {
   console.log("Starting itinerary generation...");
   const args = ItineraryArgs.parse(rawArgs);
 
-  const trip = await prisma.trip.findUnique({ where: { id: args.tripId } });
+  // Fetch trip with user data for email
+  const trip = await prisma.trip.findUnique({ 
+    where: { id: args.tripId },
+    include: { user: true }
+  });
+  
   if (!trip) throw new Error(`Trip ${args.tripId} not found`);
 
   const totalBudget = args.budgetResult?.budget?.total ?? trip.total_budget ?? 1000;
   const dailyBudget = Math.round(totalBudget / args.days);
+  const userEmail = trip.user?.email;
 
-  // Fetch weather for days
+  // Fetch weather data
   const weatherData = await prisma.weatherData.findMany({
     where: {
       trip_id: args.tripId,
@@ -119,7 +148,7 @@ export async function itineraryExecute(rawArgs) {
   try { pois = await fetchBestPlaces({ destination: trip.destination, days: args.days, startDate: args.startDate }); } 
   catch(e) { console.error("POI fetch failed:", e.message); pois = []; }
 
-  // Allocate POIs
+  // Allocate POIs to days
   const dailyBuckets = allocatePoisToDays(pois, args.days);
 
   const baseDate = args.startDate ? new Date(args.startDate) : new Date(trip.start_date);
@@ -134,7 +163,6 @@ export async function itineraryExecute(rawArgs) {
     const dateStr = formatDate(dayDate);
 
     const dayWeather = weatherData.find(w => formatDate(w.date) === dateStr) || {};
-
     const dayPois = dailyBuckets[i] || [];
 
     const dayPlan = {
@@ -158,7 +186,7 @@ export async function itineraryExecute(rawArgs) {
 
     plan.push(dayPlan);
 
-    // Store in DB
+    // Store in ItineraryItem table
     await prisma.itineraryItem.create({
       data: {
         trip_id: trip.id,
@@ -186,7 +214,15 @@ export async function itineraryExecute(rawArgs) {
     },
   });
 
-  // Print the plan
+  // Send itinerary email (NON-BLOCKING - don't wait for it to complete)
+  let emailSent = false;
+  try {
+    emailSent = await sendItineraryNotification(trip.id, userEmail);
+  } catch (emailError) {
+    console.error('Email sending failed but continuing:', emailError.message);
+  }
+
+  // Print the plan (same as before)
   console.table(plan.map(d => ({
     day: d.day,
     date: d.date,
@@ -195,7 +231,13 @@ export async function itineraryExecute(rawArgs) {
     places: d.places.map(p => p.name).join(", ")
   })));
 
-  return { summary: `Generated ${args.days}-day itinerary for ${trip.destination}`, tripId: trip.id, plan };
+  return { 
+    summary: `Generated ${args.days}-day itinerary for ${trip.destination}`, 
+    tripId: trip.id, 
+    plan,
+    emailSent: emailSent,
+    itineraryId: trip.id
+  };
 }
 
 // --------------------
@@ -203,7 +245,7 @@ export async function itineraryExecute(rawArgs) {
 // --------------------
 export const itineraryAgent = {
   name: "itineraryAgent",
-  description: "AI-powered itinerary generator with daily POIs, weather, and budgets.",
+  description: "AI-powered itinerary generator with daily POIs, weather, budgets, and automatic email sending.",
   jsonSchema: {
     type: "object",
     properties: {
