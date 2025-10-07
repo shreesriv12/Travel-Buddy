@@ -1,5 +1,10 @@
+// FlightAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
+import { PrismaClient } from '@prisma/client';
+
+// Instantiate the Prisma Client
+const prisma = new PrismaClient();
 
 // --------------------
 // Argument schema
@@ -9,6 +14,7 @@ const FlightArgs = z.object({
   destination: z.string(),
   departureDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  tripId: z.string(),
   adults: z.number().int().min(1).max(10).default(1),
   children: z.number().int().min(0).max(10).default(0),
   currency: z.string().default("USD")
@@ -18,9 +24,8 @@ const FlightArgs = z.object({
 // City to Airport Code Mapping
 // --------------------
 const CITY_TO_AIRPORT = {
-  // Indian cities
   'delhi': 'DEL',
-  'mumbai': 'BOM', 
+  'mumbai': 'BOM',
   'bangalore': 'BLR',
   'chennai': 'MAA',
   'kolkata': 'CCU',
@@ -29,8 +34,8 @@ const CITY_TO_AIRPORT = {
   'ahmedabad': 'AMD',
   'jaipur': 'JAI',
   'lucknow': 'LKO',
+  'india': 'DEL', // Fallback for the country
   
-  // International cities
   'new york': 'JFK',
   'london': 'LHR',
   'paris': 'CDG',
@@ -40,7 +45,9 @@ const CITY_TO_AIRPORT = {
   'tokyo': 'NRT',
   'sydney': 'SYD',
   'toronto': 'YYZ',
-  'frankfurt': 'FRA'
+  'frankfurt': 'FRA',
+  'usa': 'JFK', // Fallback for the country
+  'france': 'CDG', // Fallback for the country
 };
 
 // --------------------
@@ -48,26 +55,32 @@ const CITY_TO_AIRPORT = {
 // --------------------
 function cityToAirportCode(cityName) {
   const normalized = cityName.toLowerCase().trim();
-  return CITY_TO_AIRPORT[normalized] || 'DEL'; // Default to Delhi if not found
+  const code = CITY_TO_AIRPORT[normalized];
+  return code || null; // Return null if no mapping is found, this is key for debugging
 }
 
 // --------------------
 // Main execute function
 // --------------------
 async function flightExecute(args) {
-  const { origin, destination, departureDate, returnDate, adults, children, currency } = FlightArgs.parse(args);
+  const { origin, destination, departureDate, returnDate, tripId, adults, children, currency } = FlightArgs.parse(args);
+
+  console.log(`[FlightAgent Debug] Starting flight search for Trip ID: ${tripId}`);
+  console.log(`[FlightAgent Debug] Raw inputs: Origin=${origin}, Destination=${destination}, DepartureDate=${departureDate}`);
 
   try {
-    console.log(`[FlightAgent] Converting cities to airport codes...`);
-    
-    // Convert city names to airport codes
     const departureCode = cityToAirportCode(origin);
     const arrivalCode = cityToAirportCode(destination);
-    
-    console.log(`[FlightAgent] Searching flights: ${departureCode} → ${arrivalCode} on ${departureDate}`);
 
-    const response = await new Promise((resolve, reject) => {
-      getJson({
+    console.log(`[FlightAgent Debug] Converted codes: departureCode=${departureCode}, arrivalCode=${arrivalCode}`);
+
+    // If a valid airport code is not found, throw a specific error
+    if (!departureCode || !arrivalCode) {
+      const errorMessage = `Invalid or unsupported origin/destination: "${origin}" to "${destination}". Please use a specific city name or airport code (e.g., 'New York', 'Mumbai').`;
+      throw new Error(errorMessage);
+    }
+    
+    const requestParams = {
         engine: "google_flights",
         departure_id: departureCode,
         arrival_id: arrivalCode,
@@ -77,23 +90,28 @@ async function flightExecute(args) {
         children,
         currency,
         api_key: process.env.SERPAPI_KEY,
-      }, (result) => {
+    };
+    
+    console.log("[FlightAgent Debug] Sending request to SerpApi with params:", requestParams);
+    
+    const response = await new Promise((resolve, reject) => {
+      getJson(requestParams, (result) => {
         if (!result) {
           reject(new Error("No response from SerpApi"));
           return;
         }
-        
-        // Check for API errors
         if (result.error) {
+          // Reject with the raw API error for debugging
           reject(new Error(result.error));
           return;
         }
-        
         resolve(result);
       });
     });
 
-    // Process best flights
+    console.log(`[FlightAgent Debug] Received successful response from SerpApi.`);
+    
+    // Process flights
     const flights = response.best_flights?.map(flight => ({
       airline: flight.flights?.map(f => f.airline).join(' + ') || 'Unknown',
       flightNumbers: flight.flights?.map(f => f.flight_number).join(' + ') || 'N/A',
@@ -119,7 +137,6 @@ async function flightExecute(args) {
       })) || []
     })) || [];
 
-    // Process other flights
     const otherFlights = response.other_flights?.map(flight => ({
       airline: flight.flights?.map(f => f.airline).join(' + ') || 'Unknown',
       flightNumbers: flight.flights?.map(f => f.flight_number).join(' + ') || 'N/A',
@@ -134,7 +151,7 @@ async function flightExecute(args) {
 
     console.log(`[FlightAgent] Found ${flights.length} best flights and ${otherFlights.length} other flights`);
 
-    return {
+    const result = {
       summary: `Found ${flights.length} best flight options and ${otherFlights.length} other options from ${origin} (${departureCode}) to ${destination} (${arrivalCode}).`,
       bestFlights: flights,
       otherFlights: otherFlights,
@@ -148,40 +165,37 @@ async function flightExecute(args) {
         currency
       }
     };
+    
+    if (tripId) {
+      await prisma.trip.update({
+        where: { id: tripId },
+        data: { flights_data: result },
+      });
+      console.log(`[FlightAgent] Successfully saved flight data to trip ${tripId}.`);
+    }
+
+    return result;
+
   } catch (err) {
     console.error("FlightAgent Error:", err.message);
-    
-    // Return fallback flight data
-    const fallbackFlights = [
-      {
-        airline: "Multiple Airlines",
-        flightNumbers: "Check Airlines",
-        departureTime: "Morning",
-        arrivalTime: "Afternoon", 
-        duration: 120,
-        stops: 0,
-        price: 300,
-        currency: currency,
-        bookingLink: null,
-        flightSegments: []
-      }
-    ];
 
-    return {
-      summary: `Using fallback flight data for ${origin} to ${destination}. Original error: ${err.message}`,
-      bestFlights: fallbackFlights,
+    // Instead of fallback, we will just return a structured error
+    const errorResult = {
+      summary: `Flight search failed. Original error: ${err.message}`,
+      bestFlights: [],
       otherFlights: [],
-      searchParams: {
-        origin,
-        destination, 
-        departureDate,
-        returnDate,
-        adults,
-        children,
-        currency
-      },
+      searchParams: { origin, destination, departureDate, returnDate, adults, children, currency },
       error: err.message
     };
+    
+    if (tripId) {
+      await prisma.trip.update({
+        where: { id: tripId },
+        data: { flights_data: errorResult },
+      }).catch(e => console.error("Failed to update trip with flight error:", e));
+    }
+
+    return errorResult;
   }
 }
 
@@ -194,36 +208,40 @@ export const flightAgent = {
   jsonSchema: {
     type: "object",
     properties: {
-      origin: { 
-        type: "string", 
-        description: "Origin city name (e.g., 'Delhi', 'Mumbai')" 
+      origin: {
+        type: "string",
+        description: "Origin city name (e.g., 'Delhi', 'Mumbai')"
       },
-      destination: { 
-        type: "string", 
-        description: "Destination city name (e.g., 'Mumbai', 'Bangalore')" 
+      destination: {
+        type: "string",
+        description: "Destination city name (e.g., 'Mumbai', 'Bangalore')"
       },
-      departureDate: { 
-        type: "string", 
-        description: "Outbound date in YYYY-MM-DD" 
+      departureDate: {
+        type: "string",
+        description: "Outbound date in YYYY-MM-DD"
       },
-      returnDate: { 
-        type: "string", 
-        description: "Optional return date in YYYY-MM-DD" 
+      returnDate: {
+        type: "string",
+        description: "Optional return date in YYYY-MM-DD"
       },
-      adults: { 
-        type: "integer", 
-        description: "Number of adults (default: 1)" 
+      tripId: {
+        type: "string",
+        description: "The ID of the trip to store the data for"
       },
-      children: { 
-        type: "integer", 
-        description: "Number of children (default: 0)" 
+      adults: {
+        type: "integer",
+        description: "Number of adults (default: 1)"
+      },
+      children: {
+        type: "integer",
+        description: "Number of children (default: 0)"
       },
       currency: {
         type: "string",
         description: "Currency code (default: USD)"
       }
     },
-    required: ["origin", "destination", "departureDate"]
+    required: ["origin", "destination", "departureDate", "tripId"]
   },
   validate: (args) => FlightArgs.parse(args),
   execute: flightExecute

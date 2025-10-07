@@ -1,3 +1,4 @@
+// weatherAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
 import prisma from "../config/db.js";
@@ -48,7 +49,7 @@ async function weatherExecute(args) {
     const response = await new Promise((resolve, reject) => {
       getJson({
         engine: "google",
-        q: `weather ${destination}`, 
+        q: `weather for ${destination}`,
         api_key: apiKey,
       }, (result) => {
         if (!result) {
@@ -59,40 +60,58 @@ async function weatherExecute(args) {
       });
     });
 
-    // Process weather data from Google Weather
+    // --- CRITICAL FIX STARTS HERE ---
     const weatherInfo = response.weather || response.answer_box || {};
+    const forecastDays = weatherInfo.forecast;
+
+    if (!forecastDays || !Array.isArray(forecastDays) || forecastDays.length === 0) {
+      throw new Error("SerpApi did not return a valid multi-day forecast.");
+    }
     
+    // Calculate trip duration to know how many days to process
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+    const tripDurationInDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     
-    // Generate daily forecast based on available data
-    const daily = [];
-    for (let i = 0; i < days; i++) {
-      const currentDate = new Date(start);
-      currentDate.setDate(start.getDate() + i);
-      const dateStr = currentDate.toISOString().split('T')[0];
-      
-      // Convert precipitation to float and ensure valid values
-      const precipitation = parseFloat(weatherInfo.precipitation) || 0;
-      
-      daily.push({
-        date: dateStr,
-        temp_high: parseFloat(weatherInfo.temperature?.high) || 25,
-        temp_low: parseFloat(weatherInfo.temperature?.low) || 18,
-        condition: weatherInfo.condition || "Partly Cloudy",
-        precipitation: precipitation, // Now properly a float
-        weather_json: weatherInfo
-      });
+    const dailyForecast = [];
+    
+    // Loop over the *actual forecast data* from SerpApi,
+    // not a hardcoded range.
+    for (let i = 0; i < forecastDays.length && i < tripDurationInDays; i++) {
+        const forecastDay = forecastDays[i];
+        
+        // Extract and normalize data
+        const tempHigh = parseFloat(forecastDay.temperature?.high) || 0;
+        const tempLow = parseFloat(forecastDay.temperature?.low) || 0;
+        const condition = forecastDay.weather || "Not specified";
+        
+        // Precipitation needs to be parsed from a string like "20%"
+        const precipitationStr = forecastDay.precipitation || '0%';
+        const precipitation = parseFloat(precipitationStr.replace('%', '')) || 0;
+        
+        const currentDate = new Date(start);
+        currentDate.setDate(start.getDate() + i);
+        const dateStr = currentDate.toISOString().split('T')[0];
+
+        dailyForecast.push({
+            date: dateStr,
+            temp_high: tempHigh,
+            temp_low: tempLow,
+            condition: condition,
+            precipitation: precipitation,
+            weather_json: forecastDay // Store the raw daily JSON here for reference
+        });
     }
 
+    // --- FIX ENDS HERE ---
+    
     // Clear existing weather data
     await prisma.weatherData.deleteMany({
       where: { trip_id: tripId }
     });
 
-    // Store in database
-    for (const day of daily) {
+    // Store the correctly parsed data in the database
+    for (const day of dailyForecast) {
       await prisma.weatherData.create({
         data: {
           trip_id: tripId,
@@ -101,23 +120,23 @@ async function weatherExecute(args) {
           temperature_high: day.temp_high,
           temperature_low: day.temp_low,
           conditions: day.condition,
-          precipitation: day.precipitation, // Now properly a float
+          precipitation: day.precipitation,
           weather_json: day.weather_json,
           fetched_at: new Date(),
         },
       });
     }
 
-    console.log(`=== WeatherAgent: Stored ${daily.length} days of weather data ===`);
+    console.log(`=== WeatherAgent: Stored ${dailyForecast.length} days of weather data ===`);
     
     return {
-      summary: `Stored ${daily.length} daily forecast entries for ${destination}`,
-      daily,
+      summary: `Stored ${dailyForecast.length} daily forecast entries for ${destination}`,
+      daily: dailyForecast,
     };
   } catch (err) {
     console.error("WeatherAgent: API error:", err);
     
-    // Fallback: Create basic weather data
+    // Fallback logic remains the same for when the API call fails entirely
     const start = new Date(startDate);
     const end = new Date(endDate);
     const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
@@ -133,12 +152,15 @@ async function weatherExecute(args) {
         temp_high: 25,
         temp_low: 18,
         condition: "Sunny",
-        precipitation: 0, // Proper float
-        weather_json: { fallback: true }
+        precipitation: 0,
+        weather_json: { fallback: true, error: err.message }
       });
     }
+    
+    await prisma.weatherData.deleteMany({
+        where: { trip_id: tripId }
+    });
 
-    // Store fallback data
     for (const day of daily) {
       await prisma.weatherData.create({
         data: {
@@ -156,7 +178,7 @@ async function weatherExecute(args) {
     }
 
     return {
-      summary: `Created ${daily.length} fallback weather entries for ${destination}`,
+      summary: `Created ${daily.length} fallback weather entries for ${destination} due to API error.`,
       daily,
     };
   }

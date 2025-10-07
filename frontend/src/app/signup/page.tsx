@@ -2,13 +2,15 @@
 import { useState, useEffect } from "react";
 import { registerUser } from "@/lib/api";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, Link } from "lucide-react";
+import { Sun, Moon, XCircle, CheckCircle, Link } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
 export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState(null); // New state for error messages
+  const [success, setSuccess] = useState(null); // New state for success messages
   const [currentSlide, setCurrentSlide] = useState(0);
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
@@ -41,17 +43,22 @@ export default function SignupPage() {
       setCurrentSlide((prev) => (prev + 1) % carouselImages.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [carouselImages.length]);
 
   const handleSignup = async (e) => {
     e.preventDefault();
+    setError(null);
+    setSuccess(null);
     try {
       await registerUser({ name, email, password });
-      alert("Signup successful! Please log in.");
-      router.push("/login");
+      setSuccess("Account created successfully! Redirecting to login...");
+      setTimeout(() => {
+        router.push("/login");
+      }, 1500);
     } catch (err) {
-      console.log(err);
-      alert(err.response?.data?.message || "Signup failed");
+      console.error('Signup error:', err);
+      const errorMessage = err.response?.data?.message || "Signup failed. Please ensure your email is unique.";
+      setError(errorMessage);
     }
   };
 
@@ -143,6 +150,22 @@ export default function SignupPage() {
               </a>
             </p>
 
+            {/* Success Message Display */}
+            {success && (
+              <div className="flex items-center gap-2 p-3 mb-4 text-green-700 bg-green-100 rounded-lg dark:bg-green-900 dark:text-green-300">
+                <CheckCircle size={20} />
+                <span className="text-sm">{success}</span>
+              </div>
+            )}
+
+            {/* Error Message Display */}
+            {error && (
+              <div className="flex items-center gap-2 p-3 mb-4 text-red-700 bg-red-100 rounded-lg dark:bg-red-900 dark:text-red-300">
+                <XCircle size={20} />
+                <span className="text-sm">{error}</span>
+              </div>
+            )}
+            
             <form onSubmit={handleSignup} className="flex flex-col gap-5">
               <input
                 type="text"

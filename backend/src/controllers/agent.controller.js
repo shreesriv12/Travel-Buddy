@@ -1,14 +1,23 @@
-import { createTripAndRunOrchestrator } from "../agents/tripAgent.js"; // updated import
+import { createTripAndRunOrchestrator } from "../agents/tripAgent.js";
 
 export async function runTripAgents(req, res) {
-  const { userId, prompt } = req.body;
+  // Get userId from authenticated user (set by middleware)
+  const userId = req.user?.userId;
+  const { prompt } = req.body;
 
-  if (!userId || !prompt) {
-    return res.status(400).json({ error: "userId and prompt are required" });
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized - please login" });
+  }
+
+  if (!prompt) {
+    return res.status(400).json({ error: "prompt is required" });
   }
 
   try {
-    const tripWithOrchestrator = await createTripAndRunOrchestrator({ userId, prompt });
+    const tripWithOrchestrator = await createTripAndRunOrchestrator({ 
+      userId, 
+      prompt 
+    });
 
     res.json(tripWithOrchestrator);
 

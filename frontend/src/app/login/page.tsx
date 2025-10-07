@@ -2,12 +2,13 @@
 import { useState, useEffect } from "react";
 import { loginUser } from "@/lib/api";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, Link } from "lucide-react";
+import { Sun, Moon, XCircle, CheckCircle, Link } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState(null); // New state for error messages
   const [currentSlide, setCurrentSlide] = useState(0);
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
@@ -40,18 +41,37 @@ export default function LoginPage() {
       setCurrentSlide((prev) => (prev + 1) % carouselImages.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [carouselImages.length]);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await loginUser({ email, password });
-      localStorage.setItem("token", res.data.token);
-      router.push("/dashboard"); // redirect after login
-    } catch (err) {
-      alert(err.response?.data?.message || "Login failed");
+const handleLogin = async (e) => {
+  e.preventDefault();
+  setError(null);
+
+  try {
+const res = await loginUser({ email, password });
+console.log('Login response:', res.data);
+    
+    // Correctly destructure token and user object
+    const { token, user } = res.data;
+
+    if (token && user?.id) {
+      // Store token and userId
+      localStorage.setItem("token", token);
+      localStorage.setItem("userId", user.id);
+      localStorage.setItem("userName", user.name); // optional
+      localStorage.setItem("userEmail", user.email); // optional
+
+      router.push("/dashboard");
+    } else {
+      throw new Error("Login successful, but missing required user data.");
     }
-  };
+  } catch (err) {
+    console.error("Login error:", err);
+    const errorMessage = err.response?.data?.message || "Login failed. Please check your email and password.";
+    setError(errorMessage);
+  }
+};
+
 
   return (
     <div className={`min-h-screen flex items-center justify-center p-6 transition-colors duration-500 ${
@@ -141,6 +161,14 @@ export default function LoginPage() {
               </a>
             </p>
 
+            {/* Error Message Display */}
+            {error && (
+              <div className="flex items-center gap-2 p-3 mb-4 text-red-700 bg-red-100 rounded-lg dark:bg-red-900 dark:text-red-300">
+                <XCircle size={20} />
+                <span className="text-sm">{error}</span>
+              </div>
+            )}
+            
             <form onSubmit={handleLogin} className="flex flex-col gap-5">
               <input
                 type="email"

@@ -20,50 +20,25 @@ const ItineraryArgs = z.object({
 // Extract JSON from LLM text
 // --------------------
 function extractJson(text) {
-  if (!text || typeof text !== "string") {
-    throw new Error("Empty LLM output");
-  }
+  if (!text || typeof text !== "string") throw new Error("Empty LLM output");
 
-  const cleaned = text.trim();
+  try { return JSON.parse(text.trim()); } catch (e) {}
 
-  // Try direct parse
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.log("Direct JSON parse failed");
-  }
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (codeBlockMatch) try { return JSON.parse(codeBlockMatch[1].trim()); } catch(e) {}
 
-  // Try to extract from code blocks
-  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch (e) {
-      console.log("Code block extraction failed");
-    }
-  }
-
-  // Try to find JSON object
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      console.log("JSON object extraction failed");
-    }
-  }
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) try { return JSON.parse(jsonMatch[0]); } catch(e) {}
 
   throw new Error("Failed to extract JSON from LLM output");
 }
 
 // --------------------
-// Fetch POIs from Gemini
+// Fetch POIs
 // --------------------
 async function fetchBestPlaces({ destination, days, startDate }) {
   const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    throw new Error("GOOGLE_API_KEY is not set");
-  }
+  if (!apiKey) throw new Error("GOOGLE_API_KEY is not set");
 
   const model = new ChatGoogleGenerativeAI({
     apiKey,
@@ -80,14 +55,9 @@ async function fetchBestPlaces({ destination, days, startDate }) {
     `[{"name": "Eiffel Tower", "area": "Champ de Mars", "category": "landmark", "suggested_time_hrs": 2, "description": "Iconic iron tower"}]`
   ].join("\n");
 
-  console.log("Fetching POIs for:", destination);
-
   const res = await model.invoke([new HumanMessage(prompt)]);
   const text = res?.content || "";
 
-  const raw = extractJson(text);
-
-  // Validate and transform POIs
   const Poi = z.object({
     name: z.string(),
     area: z.string().optional().default(""),
@@ -96,12 +66,11 @@ async function fetchBestPlaces({ destination, days, startDate }) {
     description: z.string().optional().default(""),
   });
 
-  const parsedPois = z.array(Poi).parse(raw);
-  return parsedPois;
+  return z.array(Poi).parse(extractJson(text));
 }
 
 // --------------------
-// Allocate POIs across days
+// Allocate POIs to days
 // --------------------
 function allocatePoisToDays(pois, days) {
   const perDay = Array.from({ length: days }, () => ({ hrs: 0, items: [] }));
@@ -113,141 +82,89 @@ function allocatePoisToDays(pois, days) {
     perDay[0].hrs += p.suggested_time_hrs || 2;
   }
 
-  return perDay.map((d) => d.items);
+  return perDay.map(d => d.items);
 }
 
 // --------------------
-// Format date to YYYY-MM-DD
+// Format date
 // --------------------
 function formatDate(date) {
-  return date.toISOString().split('T')[0];
+  return date.toISOString().split("T")[0];
 }
 
 // --------------------
-// Main Itinerary Execute
+// Main Execute
 // --------------------
-async function itineraryExecute(rawArgs) {
+export async function itineraryExecute(rawArgs) {
   console.log("Starting itinerary generation...");
-  
   const args = ItineraryArgs.parse(rawArgs);
 
-  // Fetch trip
-  const trip = await prisma.trip.findUnique({ 
-    where: { id: args.tripId } 
-  });
-  
-  if (!trip) {
-    throw new Error(`Trip ${args.tripId} not found`);
-  }
+  const trip = await prisma.trip.findUnique({ where: { id: args.tripId } });
+  if (!trip) throw new Error(`Trip ${args.tripId} not found`);
 
-  // Calculate budgets
   const totalBudget = args.budgetResult?.budget?.total ?? trip.total_budget ?? 1000;
   const dailyBudget = Math.round(totalBudget / args.days);
 
-  // Get weather data from database (already stored by weatherAgent)
+  // Fetch weather for days
   const weatherData = await prisma.weatherData.findMany({
-    where: { 
+    where: {
       trip_id: args.tripId,
-      date: {
-        gte: new Date(args.startDate || trip.start_date),
-        lte: new Date(trip.end_date)
-      }
+      date: { gte: new Date(args.startDate || trip.start_date), lte: new Date(trip.end_date) },
     },
-    orderBy: { date: 'asc' }
+    orderBy: { date: "asc" },
   });
 
   // Fetch POIs
   let pois = [];
-  try {
-    pois = await fetchBestPlaces({
-      destination: trip.destination,
-      days: args.days,
-      startDate: args.startDate,
-    });
-    console.log(`Fetched ${pois.length} POIs`);
-  } catch (err) {
-    console.error("POI fetch failed:", err.message);
-    // Create fallback POIs
-    pois = [
-      {
-        name: `${trip.destination} City Center`,
-        area: "City Center",
-        category: "landmark",
-        suggested_time_hrs: 3,
-        description: "Explore the heart of the city"
-      },
-      {
-        name: "Local Museum",
-        area: "Cultural District",
-        category: "museum",
-        suggested_time_hrs: 2,
-        description: "Discover local history and culture"
-      },
-      {
-        name: "Main Park",
-        area: "Green Area",
-        category: "park",
-        suggested_time_hrs: 2,
-        description: "Relax and enjoy nature"
-      }
-    ];
-  }
+  try { pois = await fetchBestPlaces({ destination: trip.destination, days: args.days, startDate: args.startDate }); } 
+  catch(e) { console.error("POI fetch failed:", e.message); pois = []; }
 
-  // Allocate POIs to days
+  // Allocate POIs
   const dailyBuckets = allocatePoisToDays(pois, args.days);
 
-  // Build itinerary
   const baseDate = args.startDate ? new Date(args.startDate) : new Date(trip.start_date);
   const plan = [];
 
   // Clear existing itinerary items
-  await prisma.itineraryItem.deleteMany({
-    where: { trip_id: args.tripId }
-  });
+  await prisma.itineraryItem.deleteMany({ where: { trip_id: args.tripId } });
 
   for (let i = 0; i < args.days; i++) {
     const dayDate = new Date(baseDate);
     dayDate.setDate(baseDate.getDate() + i);
     const dateStr = formatDate(dayDate);
 
-    // Find weather for this day
     const dayWeather = weatherData.find(w => formatDate(w.date) === dateStr) || {};
-    
-    // Get POIs for this day
+
     const dayPois = dailyBuckets[i] || [];
 
-    // Create day plan
     const dayPlan = {
       day: i + 1,
       date: dateStr,
       weather: {
         temp_high: dayWeather.temperature_high || 25,
         temp_low: dayWeather.temperature_low || 18,
-        condition: dayWeather.conditions || "Partly Cloudy"
+        condition: dayWeather.conditions || "Partly Cloudy",
       },
       places: dayPois.map(p => ({
         name: p.name,
         area: p.area,
         category: p.category,
         suggested_time_hrs: p.suggested_time_hrs,
-        description: p.description
+        description: p.description,
       })),
       est_hours: dayPois.reduce((sum, p) => sum + (p.suggested_time_hrs || 2), 0),
-      budget: {
-        daily_estimated: dailyBudget,
-        total_estimated: totalBudget
-      }
+      budget: { daily_estimated: dailyBudget, total_estimated: totalBudget },
     };
 
     plan.push(dayPlan);
 
-    // Store in database
+    // Store in DB
     await prisma.itineraryItem.create({
       data: {
         trip_id: trip.id,
         day_number: i + 1,
         title: `Day ${i + 1} in ${trip.destination}`,
-        description: `Activities: ${dayPois.map(p => p.name).join(', ')}`,
+        description: `Activities: ${dayPois.map(p => p.name).join(", ")}`,
         start_time: new Date(`${dateStr}T09:00:00Z`),
         end_time: new Date(`${dateStr}T18:00:00Z`),
         location: trip.destination,
@@ -259,25 +176,31 @@ async function itineraryExecute(rawArgs) {
     });
   }
 
-  // Update trip summary
-  await prisma.trip.update({
-    where: { id: trip.id },
+  // Store full plan in Itinerary table
+  await prisma.itinerary.create({
     data: {
-      summary: {
-        generated: true,
-        days: args.days,
-        plan,
-      },
+      trip_id: trip.id,
+      tool: "itineraryAgent",
+      result_summary: `Generated ${args.days}-day itinerary for ${trip.destination}`,
+      full_plan: plan,
     },
   });
 
-  return {
-    summary: `Generated ${args.days}-day itinerary for ${trip.destination} with ${pois.length} POIs`,
-    tripId: trip.id,
-    plan,
-  };
+  // Print the plan
+  console.table(plan.map(d => ({
+    day: d.day,
+    date: d.date,
+    est_hours: d.est_hours,
+    daily_budget: d.budget.daily_estimated,
+    places: d.places.map(p => p.name).join(", ")
+  })));
+
+  return { summary: `Generated ${args.days}-day itinerary for ${trip.destination}`, tripId: trip.id, plan };
 }
 
+// --------------------
+// Export agent
+// --------------------
 export const itineraryAgent = {
   name: "itineraryAgent",
   description: "AI-powered itinerary generator with daily POIs, weather, and budgets.",
@@ -294,6 +217,6 @@ export const itineraryAgent = {
     },
     required: ["tripId", "destination", "days"]
   },
-  validate: (args) => ItineraryArgs.parse(args),
+  validate: args => ItineraryArgs.parse(args),
   execute: itineraryExecute,
 };
