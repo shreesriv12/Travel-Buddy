@@ -1,13 +1,18 @@
 // NewsAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
+import { PrismaClient } from "@prisma/client";
+
+// Instantiate the Prisma Client
+const prisma = new PrismaClient();
 
 // --------------------
 // Argument schema
 // --------------------
+// tripId is now required for database storage
 const NewsArgs = z.object({
   destination: z.string(),
-  tripId: z.string().optional(),
+  tripId: z.string(), // tripId is now required
   maxResults: z.number().int().min(1).max(50).default(10),
   timeRange: z.enum(['1d', '1w', '1m', '1y']).default('1m')
 });
@@ -16,6 +21,7 @@ const NewsArgs = z.object({
 // Main execute function
 // --------------------
 async function newsExecute(args) {
+  // Destructure the new required 'tripId'
   const { destination, tripId, maxResults, timeRange } = NewsArgs.parse(args);
 
   try {
@@ -33,13 +39,13 @@ async function newsExecute(args) {
           reject(new Error("No response from SerpApi"));
           return;
         }
-        
+
         // Check for API errors
         if (result.error) {
           reject(new Error(result.error));
           return;
         }
-        
+
         resolve(result);
       });
     });
@@ -72,7 +78,7 @@ async function newsExecute(args) {
       });
     }
 
-    return {
+    const result = {
       summary: `Found ${newsArticles.length} news articles about ${destination} from the past ${timeRange}.`,
       destination: destination,
       totalArticles: newsArticles.length,
@@ -80,9 +86,21 @@ async function newsExecute(args) {
       articles: newsArticles,
       searchQuery: `${destination} travel tourism attractions`
     };
+
+    // Store the data in the database
+    if (tripId) {
+      await prisma.trip.update({
+        where: { id: tripId },
+        data: { news_data: result },
+      });
+      console.log(`[NewsAgent] Successfully saved news data to trip ${tripId}.`);
+    }
+
+    return result;
+
   } catch (err) {
     console.error("NewsAgent Error:", err.message);
-    
+
     // Return fallback news data
     const fallbackArticles = [
       {
@@ -97,7 +115,7 @@ async function newsExecute(args) {
       }
     ];
 
-    return {
+    const errorResult = {
       summary: `Using fallback news data for ${destination}. Original error: ${err.message}`,
       destination: destination,
       totalArticles: fallbackArticles.length,
@@ -106,6 +124,17 @@ async function newsExecute(args) {
       searchQuery: `${destination} travel`,
       error: err.message
     };
+
+    // Store the fallback data in the database if an error occurs
+    if (tripId) {
+      // FIX: Changed 'newsData' to 'news_data' to match the schema and try block
+      await prisma.trip.update({
+        where: { id: tripId },
+        data: { news_data: errorResult },
+      }).catch(e => console.error("Failed to update trip with news error:", e));
+    }
+
+    return errorResult;
   }
 }
 
@@ -118,25 +147,26 @@ export const newsAgent = {
   jsonSchema: {
     type: "object",
     properties: {
-      destination: { 
-        type: "string", 
-        description: "Destination city or country name" 
+      destination: {
+        type: "string",
+        description: "Destination city or country name"
       },
-      tripId: { 
-        type: "string", 
-        description: "Optional trip ID for database storage" 
+      tripId: {
+        type: "string",
+        description: "The ID of the trip to store the data for"
       },
-      maxResults: { 
-        type: "integer", 
-        description: "Maximum number of news articles to fetch (default: 10)" 
+      maxResults: {
+        type: "integer",
+        description: "Maximum number of news articles to fetch (default: 10)"
       },
-      timeRange: { 
-        type: "string", 
+      timeRange: {
+        type: "string",
         enum: ['1d', '1w', '1m', '1y'],
-        description: "Time range for news articles (default: 1m)" 
+        description: "Time range for news articles (default: 1m)"
       }
     },
-    required: ["destination"]
+    // 'tripId' is now a required argument
+    required: ["destination", "tripId"]
   },
   validate: (args) => NewsArgs.parse(args),
   execute: newsExecute

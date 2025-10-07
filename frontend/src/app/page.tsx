@@ -1,9 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef } from 'react';
-import { Sun, Moon, MapPin, Calendar, Compass } from 'lucide-react';
-import { useTheme } from './context/ThemeContext';
+import { useEffect, useRef, useState } from 'react';
+import { Sun, Moon, MapPin } from 'lucide-react';
 
 interface Destination {
   name: string;
@@ -19,12 +18,15 @@ declare global {
 }
 
 export default function Page() {
-  const { theme, toggleTheme } = useTheme();
+  const [theme, setTheme] = useState('light');
   const router = useRouter();
   const heroRef = useRef<HTMLElement>(null);
   const featuredRef = useRef<HTMLElement>(null);
-  const formRef = useRef<HTMLElement>(null);
   const destinationCardsRef = useRef<(HTMLDivElement | null)[]>([]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
 
   useEffect(() => {
     const loadGSAP = (): void => {
@@ -101,41 +103,6 @@ export default function Page() {
           );
         });
       }
-
-      if (formRef.current) {
-        window.gsap.fromTo(
-          formRef.current.querySelector('.form-title'),
-          { opacity: 0, y: 40 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: 0.8,
-            ease: 'power2.out',
-            scrollTrigger: {
-              trigger: formRef.current,
-              start: 'top 80%',
-              toggleActions: 'play none none none',
-            },
-          }
-        );
-
-        window.gsap.fromTo(
-          formRef.current.querySelector('.form-container'),
-          { opacity: 0, y: 50, scale: 0.95 },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            duration: 0.8,
-            ease: 'power2.out',
-            scrollTrigger: {
-              trigger: formRef.current,
-              start: 'top 75%',
-              toggleActions: 'play none none none',
-            },
-          }
-        );
-      }
     };
 
     loadGSAP();
@@ -147,8 +114,8 @@ export default function Page() {
     };
   }, []);
 
-  const scrollToItinerary = (): void => {
-    formRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const handleStartPlanning = (): void => {
+    router.push('/login');
   };
 
   const destinations: Destination[] = [
@@ -175,7 +142,7 @@ export default function Page() {
   ];
 
   return (
-  <div className={`min-h-screen  transition-colors duration-500 ${theme === 'dark' ? 'dark' : 'bg-white text-gray-900'}`}>
+    <div className={`min-h-screen transition-colors duration-500 ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
         * { font-family: 'Poppins', sans-serif; }
@@ -185,6 +152,7 @@ export default function Page() {
       <button
         onClick={toggleTheme}
         className="fixed top-6 right-6 z-50 p-3 rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm shadow-lg hover:scale-110 transition-all duration-300"
+        style={{ backgroundColor: theme === 'dark' ? 'rgba(31, 41, 55, 0.9)' : 'rgba(255, 255, 255, 0.9)' }}
       >
         {theme === 'dark' ? (
           <Sun className="w-6 h-6 text-yellow-500" />
@@ -205,7 +173,7 @@ export default function Page() {
 
         <div className="hero-content relative z-10 text-center px-6 max-w-5xl mx-auto">
           <div className="inline-block mb-4 px-6 py-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
-            <span className="text-white/90 text-sm font-medium tracking-wide uppercase">Welcome to TravelMate</span>
+            <span className="text-white/90 text-sm font-medium tracking-wide uppercase">Welcome to TravelBuddy</span>
           </div>
           <h1 className="text-3xl italic md:text-5xl lg:text-6xl text-white mb-6 leading-tight tracking-tight">
             Plan Your Perfect
@@ -219,8 +187,8 @@ export default function Page() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
-              onClick={scrollToItinerary}
-              className="group px-8 py-3 bg-blue-800 text-white text-lg font-semibold rounded-full hover:scale-105 hover:shadow-2xl transition-all duration-300 hover:from-blue-600 hover:to-purple-700 flex items-center gap-2"
+              onClick={handleStartPlanning}
+              className="group px-8 py-3 bg-blue-800 text-white text-lg font-semibold rounded-full hover:scale-105 hover:shadow-2xl transition-all duration-300 hover:bg-blue-700 flex items-center gap-2"
             >
               Start Planning
               <svg className="w-5 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -246,14 +214,14 @@ export default function Page() {
       {/* Featured Destinations */}
       <section
         ref={featuredRef}
-        className="py-24 px-6 bg-white dark:bg-gray-900 transition-colors duration-500"
+        className={`py-24 px-6 transition-colors duration-500 ${theme === 'dark' ? 'bg-gray-900' : 'bg-white'}`}
       >
         <div className="max-w-7xl mx-auto">
           <div className="section-title text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-4">
+            <h2 className={`text-4xl md:text-5xl font-bold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
               Featured Destinations
             </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400">
+            <p className={`text-xl ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
               Discover the world's most incredible places
             </p>
           </div>
@@ -287,91 +255,12 @@ export default function Page() {
         </div>
       </section>
 
-      {/* Create Itinerary Form */}
-      <section
-        ref={formRef}
-        className="py-24 px-6 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-900 transition-colors duration-500"
-      >
-        <div className="max-w-4xl mx-auto">
-          <div className="form-title text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-4">
-              Create Your Itinerary
-            </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400">
-              Let's start planning your dream adventure
-            </p>
-          </div>
-
-          <div className="form-container bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 md:p-12 transition-colors duration-500">
-            <div className="space-y-6">
-              <div>
-                <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-medium mb-3">
-                  <MapPin className="w-5 h-5 text-blue-500" />
-                  Destination
-                </label>
-                <input
-                  type="text"
-                  placeholder="Where do you want to go?"
-                  className="w-full px-6 py-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none transition-colors duration-300 text-lg"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-medium mb-3">
-                    <Calendar className="w-5 h-5 text-purple-500" />
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full px-6 py-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:border-purple-500 dark:focus:border-purple-400 focus:outline-none transition-colors duration-300 text-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-medium mb-3">
-                    <Calendar className="w-5 h-5 text-purple-500" />
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full px-6 py-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:border-purple-500 dark:focus:border-purple-400 focus:outline-none transition-colors duration-300 text-lg"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-medium mb-3">
-                  <Compass className="w-5 h-5 text-green-500" />
-                  Activities
-                </label>
-                <textarea
-                  placeholder="What would you like to do? (e.g., hiking, beaches, culture, food)"
-                  rows={4}
-                  className="w-full px-6 py-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:border-green-500 dark:focus:border-green-400 focus:outline-none transition-colors duration-300 text-lg resize-none"
-                />
-              </div>
-
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  alert('Itinerary generation feature coming soon!');
-                }}
-                className="w-full py-5 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-lg font-semibold rounded-xl hover:scale-[1.02] hover:shadow-2xl transition-all duration-300 hover:from-blue-600 hover:to-purple-700"
-              >
-                Generate My Itinerary ✨
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Footer */}
-      <footer className="py-12 px-6 bg-white dark:bg-black text-white transition-colors duration-500">
+      <footer className={`py-12 px-6 transition-colors duration-500 ${theme === 'dark' ? 'bg-black' : 'bg-gray-900'}`}>
         <div className="max-w-7xl mx-auto text-center">
-          <h3 className="text-2xl font-bold mb-2">TravelMate</h3>
+          <h3 className="text-2xl font-bold mb-2 text-white">TravelBuddy</h3>
           <p className="text-gray-400 mb-6">Your journey begins here</p>
-          <p className="text-sm text-gray-500">© 2025 TravelMate. All rights reserved.</p>
+          <p className="text-sm text-gray-500">© 2025 TravelBuddy. All rights reserved.</p>
         </div>
       </footer>
     </div>

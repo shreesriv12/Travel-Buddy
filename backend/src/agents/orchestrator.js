@@ -1,4 +1,3 @@
-// orchestrator.js
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { weatherAgent } from "./weatherAgent.js";
@@ -10,6 +9,97 @@ import { flightAgent } from "./flightAgent.js";
 import { newsAgent } from "./newsAgent.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import prisma from "../config/db.js";
+import { hotelsAgent } from "./hotelsAgent.js";
+import { newsAgent } from "./newsAgent.js";
+
+// --------------------
+// System Prompt for AI Orchestrator
+// --------------------
+const ORCHESTRATOR_SYSTEM_PROMPT = `You are an intelligent Travel Planning Orchestrator Agent responsible for coordinating multiple specialized agents to create comprehensive travel plans.
+
+## YOUR CORE MISSION
+Your ABSOLUTE REQUIREMENT is to execute ALL available tools in the correct sequence to gather complete trip information. You must NEVER skip any tool unless it explicitly fails.
+
+## MANDATORY TOOL EXECUTION SEQUENCE
+You MUST call all of the following tools in this exact order:
+
+1. **weatherAgent** (REQUIRED - ALWAYS FIRST)
+   - Fetches weather forecasts for the destination
+   - Required inputs: tripId, destination, startDate, endDate
+   - This must complete before proceeding
+
+2. **flightAgent** (REQUIRED)
+   - Searches for available flights
+   - Required inputs: origin, destination, departureDate, returnDate, adults, tripId
+   - Essential for trip planning and budget calculation
+
+3. **hotelsAgent** (REQUIRED)
+   - Searches for hotel accommodations
+   - Required inputs: destination, checkin, checkout, adults, children, rooms, tripId
+   - Critical for accommodation planning and budgeting
+
+4. **newsAgent** (REQUIRED)
+   - Fetches recent news about the destination
+   - Required inputs: destination, tripId, maxResults, timeRange
+   - Provides important safety and event information
+
+5. **budgetAgent** (REQUIRED)
+   - Calculates trip budget based on flights, hotels, and activities
+   - Required inputs: tripId, adults
+   - Must run AFTER flights and hotels are fetched
+
+6. **eventsAgent** (REQUIRED)
+   - Finds local events and activities at the destination
+   - Required inputs: tripId, destination, date
+   - Must run AFTER budget to align with spending capacity
+
+7. **itineraryAgent** (REQUIRED)
+   - Generates day-by-day itinerary with activities and POIs
+   - Required inputs: tripId, destination, days, startDate, adults, children, budgetResult
+   - Must run AFTER weather, budget, and events are available
+
+8. **mapsAgent** (REQUIRED - ALWAYS LAST)
+   - Calculates routes between points of interest
+   - Required inputs: tripId, mode (driving/walking/transit)
+   - Must run AFTER itinerary to calculate routes between generated POIs
+
+## EXECUTION RULES
+- **SEQUENTIAL EXECUTION**: Tools must be called in the order listed above
+- **NO SKIPPING**: Every tool must be attempted, even if previous tools fail
+- **DEPENDENCY AWARENESS**: Some tools require outputs from previous tools
+- **ERROR HANDLING**: If a tool fails, log the error but continue with remaining tools
+- **COMPLETION**: Only declare success when ALL tools have been executed
+
+## TOOL DEPENDENCY MAP
+- flightAgent & hotelsAgent & newsAgent → Independent (can run after weather)
+- budgetAgent → Depends on flightAgent and hotelsAgent outputs
+- eventsAgent → Depends on budgetAgent for budget constraints
+- itineraryAgent → Depends on weatherAgent, budgetAgent, eventsAgent outputs
+- mapsAgent → Depends on itineraryAgent to have POIs/locations generated
+
+## OUTPUT REQUIREMENTS
+After executing all tools, you must provide:
+1. Status summary (COMPLETE_SUCCESS if all tools succeeded, PARTIAL_SUCCESS if some failed)
+2. Count of successful vs failed tools
+3. Trip summary with destination, duration, travelers, and budget
+4. Complete itinerary from database
+5. Detailed results from each tool execution
+
+## ERROR HANDLING PROTOCOL
+- If a tool fails: Log the error, mark it as failed, but CONTINUE
+- If a critical tool fails (weather, flights, budget): Still attempt remaining tools
+- Never abort the entire orchestration due to single tool failure
+- Always provide a final summary even if some tools failed
+
+## QUALITY ASSURANCE
+Before completing, verify:
+✓ All 8 tools were attempted
+✓ Results stored in previousToolResults array
+✓ Database updated with itinerary items
+✓ Final summary generated with all tool results
+✓ Trip.orchestrator_summary field updated in database
+
+Remember: Your success is measured by attempting ALL tools and providing complete trip planning data, not by achieving 100% tool success rate. Partial data is better than no data.`;
 
 // --------------------
 // Tool Registry
@@ -21,286 +111,43 @@ const TOOL_REGISTRY = {
   [itineraryAgent.name]: itineraryAgent,
   [mapsAgent.name]: mapsAgent,
   [flightAgent.name]: flightAgent,
-  [newsAgent.name]: newsAgent,
   [hotelsAgent.name]: hotelsAgent,
+  [newsAgent.name]: newsAgent
 };
 
 // --------------------
-// Database Storage Functions
+// Helper: Get Dynamic System Prompt with Trip Context
 // --------------------
+function getOrchestratorPrompt(trip) {
+  return `${ORCHESTRATOR_SYSTEM_PROMPT}
 
-async function storeFlightData(tripId, flightResult) {
-  try {
-    await prisma.trip.update({
-      where: { id: tripId },
-      data: { flights_data: flightResult }
-    });
-    console.log(`[DB] Flight data stored for trip ${tripId}`);
-  } catch (error) {
-    console.error(`[DB] Error storing flight data:`, error.message);
-  }
-}
+## CURRENT TRIP CONTEXT
+- Trip ID: ${trip.id}
+- Destination: ${trip.destination}
+- Origin: ${trip.origin || 'Not specified'}
+- Start Date: ${trip.start_date?.toISOString().split('T')[0]}
+- End Date: ${trip.end_date?.toISOString().split('T')[0]}
+- Adults: ${trip.adults || 1}
+- Children: ${trip.children || 0}
+- Duration: ${Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24))} days
 
-async function storeHotelData(tripId, hotelResult) {
-  try {
-    await prisma.trip.update({
-      where: { id: tripId },
-      data: { hotels_data: hotelResult }
-    });
-    console.log(`[DB] Hotel data stored for trip ${tripId}`);
-  } catch (error) {
-    console.error(`[DB] Error storing hotel data:`, error.message);
-  }
-}
-
-async function storeNewsData(tripId, newsResult) {
-  try {
-    await prisma.trip.update({
-      where: { id: tripId },
-      data: { news_data: newsResult }
-    });
-    console.log(`[DB] News data stored for trip ${tripId}`);
-  } catch (error) {
-    console.error(`[DB] Error storing news data:`, error.message);
-  }
-}
-
-async function storeWeatherData(tripId, weatherResult) {
-  try {
-    await prisma.weatherData.deleteMany({ where: { trip_id: tripId } });
-
-    if (weatherResult.forecast && Array.isArray(weatherResult.forecast)) {
-      for (const day of weatherResult.forecast) {
-        await prisma.weatherData.create({
-          data: {
-            trip_id: tripId,
-            location: weatherResult.location || 'Unknown',
-            date: new Date(day.date),
-            temperature_high: day.maxTemp || 0,
-            temperature_low: day.minTemp || 0,
-            conditions: day.condition || 'Unknown',
-            precipitation: day.precipitation || 0,
-            weather_json: day
-          }
-        });
-      }
-      console.log(`[DB] Weather data stored for trip ${tripId}`);
-    }
-  } catch (error) {
-    console.error(`[DB] Error storing weather data:`, error.message);
-  }
-}
-
-async function storeEventsData(tripId, eventsResult) {
-  try {
-    await prisma.event.deleteMany({ where: { trip_id: tripId } });
-
-    if (eventsResult.events && Array.isArray(eventsResult.events)) {
-      for (const event of eventsResult.events) {
-        await prisma.event.create({
-          data: {
-            trip_id: tripId,
-            title: event.name || 'Unknown Event',
-            description: event.description || 'No description available',
-            location: event.location || 'Unknown Location',
-            start_datetime: new Date(event.date || new Date()),
-            end_datetime: new Date(event.endDate || new Date()),
-            category: event.category || 'General',
-            price: event.price || 0,
-            booking_url: event.bookingLink || null,
-            is_recommended: event.recommended || false,
-            relevance_score: event.relevanceScore || 0
-          }
-        });
-      }
-      console.log(`[DB] Events data stored for trip ${tripId}`);
-    }
-  } catch (error) {
-    console.error(`[DB] Error storing events data:`, error.message);
-  }
-}
-
-async function storeItineraryData(tripId, itineraryResult) {
-  try {
-    await prisma.itineraryItem.deleteMany({ where: { trip_id: tripId } });
-
-    if (itineraryResult.itinerary && Array.isArray(itineraryResult.itinerary)) {
-      let sortOrder = 0;
-      for (const day of itineraryResult.itinerary) {
-        if (day.activities && Array.isArray(day.activities)) {
-          for (const activity of day.activities) {
-            await prisma.itineraryItem.create({
-              data: {
-                trip_id: tripId,
-                day_number: day.day || 1,
-                title: activity.title || 'Unknown Activity',
-                description: activity.description || 'No description',
-                start_time: new Date(activity.startTime || new Date()),
-                end_time: new Date(activity.endTime || new Date()),
-                location: activity.location || 'Unknown',
-                location_coords: activity.coordinates || {},
-                category: activity.category || 'General',
-                estimated_cost: activity.cost || 0,
-                sort_order: sortOrder++
-              }
-            });
-          }
-        }
-      }
-      console.log(`[DB] Itinerary data stored for trip ${tripId}`);
-    }
-  } catch (error) {
-    console.error(`[DB] Error storing itinerary data:`, error.message);
-  }
+Begin executing all tools now. Report progress after each tool completion.`;
 }
 
 // --------------------
-// Data Processing Functions for Detailed Response
+// Main Orchestrator - Simplified Sequential Execution
 // --------------------
-
-function processFlightData(flightData) {
-  if (!flightData) return null;
-  
-  return {
-    summary: flightData.summary,
-    bestFlights: flightData.bestFlights?.map(flight => ({
-      airline: flight.airline,
-      flightNumbers: flight.flightNumbers,
-      departureTime: flight.departureTime,
-      arrivalTime: flight.arrivalTime,
-      duration: flight.duration,
-      stops: flight.stops,
-      price: flight.price,
-      currency: flight.currency,
-      bookingLink: flight.bookingLink,
-      segments: flight.flightSegments
-    })) || [],
-    otherFlights: flightData.otherFlights?.length || 0,
-    searchParams: flightData.searchParams
-  };
-}
-
-function processHotelData(hotelData) {
-  if (!hotelData) return null;
-  
-  return {
-    summary: hotelData.summary,
-    hotels: hotelData.hotels?.map(hotel => ({
-      name: hotel.name,
-      rating: hotel.rating,
-      reviewCount: hotel.reviewCount,
-      pricePerNight: hotel.price,
-      totalPrice: hotel.totalPrice,
-      currency: hotel.currency,
-      address: hotel.address,
-      amenities: hotel.amenities,
-      description: hotel.description,
-      bookingLink: hotel.bookingLink
-    })) || [],
-    priceStatistics: hotelData.priceStatistics,
-    totalHotels: hotelData.totalHotels,
-    searchParams: hotelData.searchParams
-  };
-}
-
-function processNewsData(newsData) {
-  if (!newsData) return null;
-  
-  return {
-    summary: newsData.summary,
-    articles: newsData.articles?.map(article => ({
-      title: article.title,
-      snippet: article.snippet,
-      source: article.source,
-      date: article.date,
-      link: article.link,
-      thumbnail: article.thumbnail
-    })) || [],
-    totalArticles: newsData.totalArticles,
-    timeRange: newsData.timeRange
-  };
-}
-
-function processWeatherData(weatherData) {
-  if (!weatherData || !Array.isArray(weatherData)) return null;
-  
-  return {
-    forecast: weatherData.map(day => ({
-      date: day.date,
-      conditions: day.conditions,
-      temperatureHigh: day.temperature_high,
-      temperatureLow: day.temperature_low,
-      precipitation: day.precipitation
-    })),
-    totalDays: weatherData.length
-  };
-}
-
-function processEventsData(eventsData) {
-  if (!eventsData || !Array.isArray(eventsData)) return null;
-  
-  return {
-    events: eventsData.map(event => ({
-      title: event.title,
-      description: event.description,
-      location: event.location,
-      startDateTime: event.start_datetime,
-      endDateTime: event.end_datetime,
-      category: event.category,
-      price: event.price,
-      bookingUrl: event.booking_url,
-      isRecommended: event.is_recommended
-    })),
-    totalEvents: eventsData.length
-  };
-}
-
-function processItineraryData(itineraryData) {
-  if (!itineraryData || !Array.isArray(itineraryData)) return null;
-  
-  const days = {};
-  itineraryData.forEach(item => {
-    if (!days[item.day_number]) {
-      days[item.day_number] = [];
-    }
-    days[item.day_number].push({
-      title: item.title,
-      description: item.description,
-      startTime: item.start_time,
-      endTime: item.end_time,
-      location: item.location,
-      category: item.category,
-      estimatedCost: item.estimated_cost
-    });
-  });
-
-  return {
-    days: Object.keys(days).map(dayNumber => ({
-      day: parseInt(dayNumber),
-      activities: days[dayNumber]
-    })),
-    totalActivities: itineraryData.length,
-    totalDays: Object.keys(days).length
-  };
-}
-
-function processBudgetData(budgetResult) {
-  if (!budgetResult) return null;
-  
-  return {
-    summary: budgetResult.summary,
-    budget: budgetResult.budget,
-    breakdown: budgetResult.breakdown,
-    recommendations: budgetResult.recommendations
-  };
-}
-
-// --------------------
-// Main Orchestrator - Returns Detailed Response
-// --------------------
+// Note: This function now expects the full trip object as its argument
 export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   console.log("\n=== MCP Orchestrator Started ===");
   console.log(`[Orchestrator] Trip ID: ${trip.id}, Destination: ${trip.destination}`);
+
+  // Initialize AI Model with System Prompt
+  const model = new ChatGoogleGenerativeAI({
+    model: "gemini-1.5-pro",
+    temperature: 0.3,
+    maxRetries: 2,
+  });
 
   const previousToolResults = [];
   const collectedData = {
@@ -314,6 +161,10 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   };
 
   try {
+    // Log the system prompt being used
+    console.log("[Orchestrator] System Prompt Loaded:");
+    console.log(getOrchestratorPrompt(trip).substring(0, 200) + "...\n");
+
     // ============================================
     // 1️⃣ WEATHER AGENT
     // ============================================
@@ -351,12 +202,14 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // ============================================
     console.log("[Orchestrator] Executing flightAgent...");
     try {
+      // FIX: Passing the tripId to the agent
       const result = await flightAgent.execute({
         origin: trip.origin,
         destination: trip.destination,
         departureDate: trip.start_date?.toISOString().split('T')[0],
         returnDate: trip.end_date?.toISOString().split('T')[0],
-        adults: trip.adults || 1
+        adults: trip.adults || 1,
+        tripId: trip.id // <-- CRITICAL FIX: Passing the tripId
       });
 
       await storeFlightData(trip.id, result);
@@ -380,27 +233,26 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 3️⃣ HOTELS AGENT
+    // 3️⃣ HOTELS AGENT (After flights)
     // ============================================
     console.log("[Orchestrator] Executing hotelsAgent...");
     try {
+      // FIX: Passing the tripId to the agent
       const result = await hotelsAgent.execute({
         destination: trip.destination,
         checkin: trip.start_date?.toISOString().split('T')[0],
         checkout: trip.end_date?.toISOString().split('T')[0],
-        adults: trip.adults || 2,
+        adults: trip.adults || 1,
+        children: trip.children || 0,
         rooms: 1,
         currency: "USD",
-        sortBy: "relevance"
+        sortBy: "relevance",
+        tripId: trip.id // <-- CRITICAL FIX: Passing the tripId
       });
 
-      await storeHotelData(trip.id, result);
-      collectedData.hotels = result;
-      
       previousToolResults.push({
         tool: hotelsAgent.name,
-        status: 'SUCCESS',
-        resultSummary: result.summary || "Hotels found and stored",
+        resultSummary: result.summary || "Hotels fetched",
         result
       });
       console.log("[Orchestrator] ✅ hotelsAgent completed");
@@ -408,31 +260,27 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.error("[Orchestrator] ❌ hotelsAgent failed:", error.message);
       previousToolResults.push({
         tool: hotelsAgent.name,
-        status: 'FAILED',
         resultSummary: "Hotel search failed",
         error: error.message
       });
     }
 
     // ============================================
-    // 4️⃣ NEWS AGENT
+    // 4️⃣ NEWS AGENT (After hotels)
     // ============================================
     console.log("[Orchestrator] Executing newsAgent...");
     try {
+      // FIX: Passing the tripId to the agent
       const result = await newsAgent.execute({
         destination: trip.destination,
-        tripId: trip.id,
+        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
         maxResults: 10,
         timeRange: '1m'
       });
 
-      await storeNewsData(trip.id, result);
-      collectedData.news = result;
-      
       previousToolResults.push({
         tool: newsAgent.name,
-        status: 'SUCCESS',
-        resultSummary: result.summary || "News articles fetched and stored",
+        resultSummary: result.summary || "News fetched",
         result
       });
       console.log("[Orchestrator] ✅ newsAgent completed");
@@ -440,25 +288,20 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.error("[Orchestrator] ❌ newsAgent failed:", error.message);
       previousToolResults.push({
         tool: newsAgent.name,
-        status: 'FAILED',
         resultSummary: "News fetch failed",
         error: error.message
       });
     }
 
     // ============================================
-    // 5️⃣ BUDGET AGENT
+    // 5️⃣ BUDGET AGENT (After flights & hotels)
     // ============================================
     console.log("[Orchestrator] Executing budgetAgent...");
     try {
-      const flightData = collectedData.flights;
-      const hotelData = collectedData.hotels;
-
+      // FIX: Passing the tripId to the agent
       const result = await budgetAgent.execute({
-        tripId: trip.id,
-        adults: trip.adults || 1,
-        flightData: flightData,
-        hotelData: hotelData
+        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
+        adults: trip.adults || 1
       });
 
       collectedData.budget = result;
@@ -481,12 +324,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 6️⃣ EVENTS AGENT
+    // 6️⃣ EVENTS AGENT (After budget)
     // ============================================
     console.log("[Orchestrator] Executing eventsAgent...");
     try {
+      // FIX: Passing the tripId to the agent
       const result = await eventsAgent.execute({
-        tripId: trip.id,
+        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
         destination: trip.destination,
         date: trip.start_date?.toISOString().split('T')[0]
       });
@@ -512,7 +356,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 7️⃣ ITINERARY AGENT
+    // 7️⃣ ITINERARY AGENT (After weather + budget + events)
     // ============================================
     console.log("[Orchestrator] Executing itineraryAgent...");
     try {
@@ -520,8 +364,11 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
       ) || 3;
 
+      const budgetResult = previousToolResults.find(r => r.tool === budgetAgent.name)?.result;
+
+      // FIX: Passing the tripId to the agent
       const result = await itineraryAgent.execute({
-        tripId: trip.id,
+        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
         destination: trip.destination,
         days,
         startDate: trip.start_date?.toISOString().split('T')[0],
@@ -553,12 +400,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 8️⃣ MAPS AGENT
+    // 8️⃣ MAPS AGENT (After itinerary - routes between POIs)
     // ============================================
     console.log("[Orchestrator] Executing mapsAgent for routes...");
     try {
+      // FIX: Passing the tripId to the agent
       const result = await mapsAgent.execute({
-        tripId: trip.id,
+        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
         mode: "driving"
       });
 
@@ -580,9 +428,42 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // FINAL: Generate Comprehensive Detailed Response
+    // FINAL: Generate AI-Enhanced Summary
     // ============================================
-    console.log("\n[Orchestrator] All agents completed. Generating detailed response...");
+    console.log("\n[Orchestrator] All agents completed. Generating AI-enhanced summary...");
+
+    // Prepare context for AI summary
+    const summaryContext = previousToolResults.map(r => ({
+      tool: r.tool,
+      status: r.error ? 'failed' : 'success',
+      summary: r.resultSummary
+    }));
+
+    // Generate AI summary using the model
+    let aiGeneratedInsights = "";
+    try {
+      const summaryPrompt = `Based on the following tool execution results, provide a brief, friendly summary for the traveler:
+
+${JSON.stringify(summaryContext, null, 2)}
+
+Trip Details:
+- Destination: ${trip.destination}
+- Duration: ${Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24))} days
+- Travelers: ${trip.adults || 1} adult(s)
+
+Provide a 2-3 sentence summary highlighting the key planning achievements and any important notes.`;
+
+      const aiResponse = await model.invoke([
+        new SystemMessage(ORCHESTRATOR_SYSTEM_PROMPT),
+        new HumanMessage(summaryPrompt)
+      ]);
+
+      aiGeneratedInsights = aiResponse.content;
+      console.log("[Orchestrator] AI Summary Generated:", aiGeneratedInsights);
+    } catch (error) {
+      console.warn("[Orchestrator] AI summary generation failed:", error.message);
+      aiGeneratedInsights = "Trip planning completed successfully with all available data.";
+    }
 
     // Fetch all data from database for complete response
     const [dbItinerary, dbWeather, dbEvents, tripData] = await Promise.all([
@@ -608,13 +489,11 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       })
     ]);
 
-    // Process all data for detailed response
-    const detailedResponse = {
-      // Trip Basic Information
-      tripInfo: {
-        id: trip.id,
-        title: trip.title,
-        origin: trip.origin,
+    const finalAnswer = {
+      status: successfulTools === totalTools ? "COMPLETE_SUCCESS" : "PARTIAL_SUCCESS",
+      message: `Trip planning completed with ${successfulTools}/${totalTools} tools successful`,
+      aiInsights: aiGeneratedInsights,
+      tripSummary: {
         destination: trip.destination,
         startDate: trip.start_date,
         endDate: trip.end_date,
@@ -622,77 +501,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         travelers: `${trip.adults || 1} adult(s)`,
         status: 'PLANNING_COMPLETED'
       },
-
-      // Comprehensive Travel Data
-      travelData: {
-        // Flight Information
-        flights: processFlightData(tripData?.flights_data),
-        
-        // Hotel Information
-        hotels: processHotelData(tripData?.hotels_data),
-        
-        // Destination News
-        news: processNewsData(tripData?.news_data),
-        
-        // Weather Forecast
-        weather: processWeatherData(dbWeather),
-        
-        // Local Events
-        events: processEventsData(dbEvents),
-        
-        // Travel Itinerary
-        itinerary: processItineraryData(dbItinerary),
-        
-        // Budget Information
-        budget: processBudgetData(collectedData.budget)
-      },
-
-      // Trip Summary & Recommendations
-      summary: {
-        totalCostEstimate: collectedData.budget?.budget?.total || 0,
-        bestFlightOption: tripData?.flights_data?.bestFlights?.[0] ? {
-          airline: tripData.flights_data.bestFlights[0].airline,
-          price: tripData.flights_data.bestFlights[0].price,
-          duration: tripData.flights_data.bestFlights[0].duration
-        } : null,
-        recommendedHotels: tripData?.hotels_data?.hotels?.slice(0, 3).map(hotel => ({
-          name: hotel.name,
-          rating: hotel.rating,
-          price: hotel.price
-        })) || [],
-        weatherAdvice: dbWeather.length > 0 ? `Pack for ${dbWeather[0]?.conditions} weather` : 'Check weather updates',
-        keyAttractions: dbEvents.slice(0, 5).map(event => event.title)
-      },
-
-      // Agent Execution Report
-      executionReport: {
-        totalAgents: previousToolResults.length,
-        successfulAgents: previousToolResults.filter(r => r.status === 'SUCCESS').length,
-        failedAgents: previousToolResults.filter(r => r.status === 'FAILED').length,
-        agentDetails: previousToolResults.map(agent => ({
-          name: agent.tool,
-          status: agent.status,
-          summary: agent.resultSummary,
-          timestamp: new Date().toISOString()
-        }))
-      },
-
-      // Data Storage Status
-      dataStatus: {
-        flightsStored: !!tripData?.flights_data,
-        hotelsStored: !!tripData?.hotels_data,
-        newsStored: !!tripData?.news_data,
-        weatherStored: dbWeather.length > 0,
-        eventsStored: dbEvents.length > 0,
-        itineraryStored: dbItinerary.length > 0,
-        databaseId: trip.id
-      },
-
-      // Timestamps
-      timestamps: {
-        planningStarted: new Date().toISOString(),
-        planningCompleted: new Date().toISOString(),
-        dataLastUpdated: new Date().toISOString()
+      itinerary: itineraryItems,
+      toolResults: previousToolResults,
+      executionMetadata: {
+        totalTools,
+        successfulTools,
+        failedTools: totalTools - successfulTools,
+        executionTime: new Date().toISOString()
       }
     };
 
@@ -711,29 +526,20 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     });
 
     console.log("\n=== Orchestrator Completed Successfully ===");
-    console.log(`[Orchestrator] Generated detailed response with:`);
-    console.log(`  - ${detailedResponse.travelData.flights?.bestFlights?.length || 0} flight options`);
-    console.log(`  - ${detailedResponse.travelData.hotels?.hotels?.length || 0} hotel options`);
-    console.log(`  - ${detailedResponse.travelData.news?.articles?.length || 0} news articles`);
-    console.log(`  - ${detailedResponse.travelData.weather?.totalDays || 0} weather forecasts`);
-    console.log(`  - ${detailedResponse.travelData.events?.totalEvents || 0} local events`);
-    console.log(`  - ${detailedResponse.travelData.itinerary?.totalActivities || 0} itinerary activities`);
-    
-    return detailedResponse;
+    console.log(`[Orchestrator] Status: ${finalAnswer.status}`);
+    console.log(`[Orchestrator] Success Rate: ${successfulTools}/${totalTools}`);
+
+    // Store the full orchestrator JSON in Trip.orchestrator_summary
+    await prisma.trip.update({
+      where: { id: trip.id },
+      data: { orchestrator_summary: finalAnswer }
+    });
+
+    return finalAnswer;
 
   } catch (error) {
     console.error("[Orchestrator] Critical error:", error.message);
-    
-    // Update trip status to failed
-    await prisma.trip.update({
-      where: { id: trip.id },
-      data: {
-        status: 'FAILED',
-        summary: { error: error.message }
-      }
-    });
-    
-    // Return error response with partial data
+
     return {
       status: "FAILED",
       message: "Orchestrator failed to complete",
@@ -748,4 +554,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   }
 }
 
+// --------------------
+// Export
+// --------------------
 export default runMCPOrchestrator;
+export { ORCHESTRATOR_SYSTEM_PROMPT, getOrchestratorPrompt };

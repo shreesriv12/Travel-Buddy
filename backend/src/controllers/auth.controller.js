@@ -40,8 +40,16 @@ export const login = async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
     );
 
-    res.json({ token });
-    console.log(token);
+    // Return both token and user data
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      }
+    });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

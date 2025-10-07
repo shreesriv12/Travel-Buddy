@@ -22,18 +22,21 @@ function safeNumber(value, defaultValue = 0) {
 // --------------------
 function calculateBudget(trip) {
   const adults = trip.adults || 1;
-  const tripDuration = Math.max(1, Math.ceil(
-    (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
-  ));
+  const tripDuration = Math.max(
+    1,
+    Math.ceil(
+      (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
+    )
+  );
 
-  // Use reasonable defaults since we don't have flight/hotel APIs working
   const flightCost = 500 * adults;
   const hotelCost = 100 * tripDuration;
   const estimatedFood = tripDuration * adults * 50;
   const estimatedLocal = tripDuration * 30;
   const miscellaneous = Math.round((flightCost + hotelCost) * 0.1);
 
-  const totalEstimate = Math.round(flightCost + hotelCost + estimatedFood + estimatedLocal + miscellaneous);
+  const totalEstimate =
+    Math.round(flightCost + hotelCost + estimatedFood + estimatedLocal + miscellaneous);
 
   return {
     breakdown: {
@@ -59,73 +62,81 @@ async function budgetExecute(args) {
   const trip = await prisma.trip.findUnique({ where: { id: tripId } });
   if (!trip) throw new Error("Trip not found");
 
-  // Calculate budget with reasonable defaults
+  // Calculate budget
   const budget = calculateBudget(trip);
 
-  // Clear existing budget items
-  await prisma.budgetItem.deleteMany({
-    where: { trip_id: tripId }
+  // Delete old budget items
+  await prisma.budgetItem.deleteMany({ where: { trip_id: tripId } });
+
+  // Insert breakdown as BudgetItems
+  const budgetItemsData = Object.entries(budget.breakdown).map(([category, amount]) => ({
+    trip_id: tripId,
+    category,
+    item_name: category,
+    estimated_amount: amount,
+    actual_amount: 0,
+    status: "Estimated",
+  }));
+
+  await prisma.budgetItem.createMany({ data: budgetItemsData });
+
+  // Fetch and print all budget items for this trip
+  const storedItems = await prisma.budgetItem.findMany({
+    where: { trip_id: tripId },
+    orderBy: { category: "asc" },
   });
 
-  // Store in database
-  await prisma.budgetItem.create({
+  console.log(`\n✅ Stored BudgetItems for trip ${tripId}:`);
+  storedItems.forEach(item => {
+    console.log(
+      `${item.category} - Estimated: ${item.estimated_amount}, Actual: ${item.actual_amount}, Status: ${item.status}`
+    );
+  });
+  console.log("\n");
+
+  // Update trip summary
+  await prisma.trip.update({
+    where: { id: tripId },
     data: {
-      trip_id: tripId,
-      category: "Travel + Accommodation",
-      item_name: "Estimated Trip Cost",
-      estimated_amount: budget.total,
-      actual_amount: 0,
-      status: "Pending",
+      summary: {
+        totalBudget: budget.total,
+        perPerson: budget.perPerson,
+        breakdown: budget.breakdown,
+        status: "Estimated",
+      },
+      total_budget: budget.total,
     },
   });
 
-  // Store individual budget categories
-  const categories = [
-    { category: "Flights", item_name: "Round-trip flights", estimated_amount: budget.breakdown.flights },
-    { category: "Accommodation", item_name: "Hotel stay", estimated_amount: budget.breakdown.accommodation },
-    { category: "Food", item_name: "Meals and dining", estimated_amount: budget.breakdown.food },
-    { category: "Transport", item_name: "Local transportation", estimated_amount: budget.breakdown.localTransport },
-    { category: "Miscellaneous", item_name: "Other expenses", estimated_amount: budget.breakdown.miscellaneous },
-  ];
-
-  for (const category of categories) {
-    await prisma.budgetItem.create({
-      data: {
-        trip_id: tripId,
-        ...category,
-        actual_amount: 0,
-        status: "Pending",
-      },
-    });
-  }
-
-  console.log(`[Budget Agent] ✅ Budget calculated: ${budget.currency} ${budget.total}`);
-
+  // Return full structured result
   return {
-    summary: `Estimated total budget: ${budget.currency} ${budget.total} (${budget.currency} ${budget.perPerson}/person)`,
-    
-    budget: {
-      total: budget.total,
-      perPerson: budget.perPerson,
-      currency: budget.currency,
-      status: "Estimated",
-      breakdown: budget.breakdown,
-    },
-
-    recommendations: {
-      savingTips: [
-        "Book flights 2-3 months in advance for better prices",
-        "Consider alternative accommodations like Airbnb",
-        "Use public transportation to save on local transport",
-        "Look for free activities and attractions",
-      ],
-    },
-
-    tripInfo: {
-      origin: trip.origin,
-      destination: trip.destination,
-      duration: `${Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24))} days`,
-      travelers: adults,
+    tool: "budgetAgent",
+    resultSummary: `Estimated total budget: ${budget.currency} ${budget.total} (${budget.currency} ${budget.perPerson}/person)`,
+    result: {
+      summary: `Estimated total budget: ${budget.currency} ${budget.total} (${budget.currency} ${budget.perPerson}/person)`,
+      budget: {
+        total: budget.total,
+        perPerson: budget.perPerson,
+        currency: budget.currency,
+        status: "Estimated",
+        breakdown: budget.breakdown,
+      },
+      recommendations: {
+        savingTips: [
+          "Book flights 2-3 months in advance for better prices",
+          "Consider alternative accommodations like Airbnb",
+          "Use public transportation to save on local transport",
+          "Look for free activities and attractions",
+        ],
+      },
+      tripInfo: {
+        origin: trip.origin,
+        destination: trip.destination,
+        duration: `${Math.ceil(
+          (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
+        )} days`,
+        travelers: trip.adults || 1,
+      },
     },
   };
 }
@@ -135,9 +146,7 @@ export const budgetAgent = {
   description: "Calculates budget estimates for the trip based on destination and duration.",
   jsonSchema: {
     type: "object",
-    properties: {
-      tripId: { type: "string" },
-    },
+    properties: { tripId: { type: "string" } },
     required: ["tripId"],
   },
   validate: (args) => BudgetArgs.parse(args),

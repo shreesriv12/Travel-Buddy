@@ -1,14 +1,20 @@
 // HotelsAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
+import { PrismaClient } from "@prisma/client";
+
+// Instantiate the Prisma Client
+const prisma = new PrismaClient();
 
 // --------------------
 // Argument schema
 // --------------------
+// Updated to include 'tripId'
 const HotelsArgs = z.object({
   destination: z.string(),
   checkin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   checkout: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  tripId: z.string(), // Added tripId, which is required to update the database
   adults: z.number().int().min(1).max(10).default(2),
   children: z.number().int().min(0).max(10).default(0),
   rooms: z.number().int().min(1).max(5).default(1),
@@ -20,7 +26,8 @@ const HotelsArgs = z.object({
 // Main execute function
 // --------------------
 async function hotelsExecute(args) {
-  const { destination, checkin, checkout, adults, children, rooms, currency, sortBy } = HotelsArgs.parse(args);
+  // Destructure the new 'tripId' argument
+  const { destination, checkin, checkout, tripId, adults, children, rooms, currency, sortBy } = HotelsArgs.parse(args);
 
   try {
     console.log(`[HotelsAgent] Searching hotels in: ${destination} from ${checkin} to ${checkout}`);
@@ -35,8 +42,8 @@ async function hotelsExecute(args) {
         children: children > 0 ? children.toString() : undefined,
         rooms: rooms.toString(),
         currency: currency,
-        sort: sortBy === 'price_low' ? 'price_low' : 
-              sortBy === 'price_high' ? 'price_high' : 
+        sort: sortBy === 'price_low' ? 'price_low' :
+              sortBy === 'price_high' ? 'price_high' :
               sortBy === 'rating' ? 'review_score' : 'relevance',
         api_key: process.env.SERPAPI_KEY,
       }, (result) => {
@@ -44,18 +51,16 @@ async function hotelsExecute(args) {
           reject(new Error("No response from SerpApi"));
           return;
         }
-        
-        // Check for API errors
+
         if (result.error) {
           reject(new Error(result.error));
           return;
         }
-        
+
         resolve(result);
       });
     });
 
-    // Process hotels results
     const hotels = response.properties?.map((hotel, index) => ({
       id: `hotel_${index + 1}`,
       name: hotel.name || 'Unknown Hotel',
@@ -71,8 +76,8 @@ async function hotelsExecute(args) {
       checkinDate: checkin,
       checkoutDate: checkout,
       totalNights: Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
-      totalPrice: (hotel.rate_per_night?.lowest || hotel.rate_per_night?.median || 0) * 
-                 Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
+      totalPrice: (hotel.rate_per_night?.lowest || hotel.rate_per_night?.median || 0) *
+                  Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
       bookingLink: hotel.link || null,
       position: index + 1,
       type: hotel.type || 'hotel'
@@ -80,7 +85,6 @@ async function hotelsExecute(args) {
 
     console.log(`[HotelsAgent] Found ${hotels.length} hotels`);
 
-    // If no hotels found, return fallback data
     if (hotels.length === 0) {
       hotels.push({
         id: 'fallback_1',
@@ -104,7 +108,6 @@ async function hotelsExecute(args) {
       });
     }
 
-    // Calculate price statistics
     const prices = hotels.map(h => h.price).filter(p => p > 0);
     const priceStats = {
       min: prices.length > 0 ? Math.min(...prices) : 0,
@@ -112,7 +115,7 @@ async function hotelsExecute(args) {
       average: prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0
     };
 
-    return {
+    const result = {
       summary: `Found ${hotels.length} hotels in ${destination} from ${checkin} to ${checkout}. Price range: ${priceStats.min}-${priceStats.max} ${currency} per night.`,
       destination: destination,
       checkin: checkin,
@@ -121,17 +124,23 @@ async function hotelsExecute(args) {
       priceStatistics: priceStats,
       currency: currency,
       hotels: hotels,
-      searchParams: {
-        adults,
-        children,
-        rooms,
-        sortBy
-      }
+      searchParams: { adults, children, rooms, sortBy }
     };
+
+    // Store the data in the database
+    if (tripId) {
+        await prisma.trip.update({
+            where: { id: tripId },
+            data: { hotels_data: result },
+        });
+        console.log(`[HotelsAgent] Successfully saved hotel data to trip ${tripId}.`);
+    }
+
+    return result;
+
   } catch (err) {
     console.error("HotelsAgent Error:", err.message);
-    
-    // Return fallback hotel data
+
     const fallbackHotels = [
       {
         id: 'fallback_1',
@@ -155,7 +164,7 @@ async function hotelsExecute(args) {
       }
     ];
 
-    return {
+    const errorResult = {
       summary: `Using fallback hotel data for ${destination}. Original error: ${err.message}`,
       destination: destination,
       checkin: checkin,
@@ -164,14 +173,20 @@ async function hotelsExecute(args) {
       priceStatistics: { min: 120, max: 120, average: 120 },
       currency: currency,
       hotels: fallbackHotels,
-      searchParams: {
-        adults,
-        children,
-        rooms,
-        sortBy
-      },
+      searchParams: { adults, children, rooms, sortBy },
       error: err.message
     };
+
+    // Store the fallback data in the database if an error occurs
+    if (tripId) {
+        // Fix: Changed 'hotelsData' to 'hotels_data' to match the schema and try block
+        await prisma.trip.update({
+            where: { id: tripId },
+            data: { hotels_data: errorResult },
+        }).catch(e => console.error("Failed to update trip with hotel error:", e));
+    }
+
+    return errorResult;
   }
 }
 
@@ -184,29 +199,33 @@ export const hotelsAgent = {
   jsonSchema: {
     type: "object",
     properties: {
-      destination: { 
-        type: "string", 
-        description: "Destination city or location name" 
+      destination: {
+        type: "string",
+        description: "Destination city or location name"
       },
-      checkin: { 
-        type: "string", 
-        description: "Check-in date in YYYY-MM-DD format" 
+      checkin: {
+        type: "string",
+        description: "Check-in date in YYYY-MM-DD format"
       },
-      checkout: { 
-        type: "string", 
-        description: "Check-out date in YYYY-MM-DD format" 
+      checkout: {
+        type: "string",
+        description: "Check-out date in YYYY-MM-DD format"
       },
-      adults: { 
-        type: "integer", 
-        description: "Number of adults (default: 2)" 
+      tripId: {
+        type: "string",
+        description: "The ID of the trip to store the data for"
       },
-      children: { 
-        type: "integer", 
-        description: "Number of children (default: 0)" 
+      adults: {
+        type: "integer",
+        description: "Number of adults (default: 2)"
       },
-      rooms: { 
-        type: "integer", 
-        description: "Number of rooms (default: 1)" 
+      children: {
+        type: "integer",
+        description: "Number of children (default: 0)"
+      },
+      rooms: {
+        type: "integer",
+        description: "Number of rooms (default: 1)"
       },
       currency: {
         type: "string",
@@ -218,7 +237,7 @@ export const hotelsAgent = {
         description: "Sort results by (default: relevance)"
       }
     },
-    required: ["destination", "checkin", "checkout"]
+    required: ["destination", "checkin", "checkout", "tripId"] // 'tripId' is now a required argument
   },
   validate: (args) => HotelsArgs.parse(args),
   execute: hotelsExecute
