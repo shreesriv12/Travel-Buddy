@@ -149,13 +149,13 @@ export default function HotelsPage() {
             <div>
               <h3 className="text-xl font-semibold text-gray-900 mb-1">{hotel.name}</h3>
               <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                <MapPin className="w-4 h-4" />
-                <span>{hotel.address}</span>
+                {/* <MapPin className="w-4 h-4" /> */}
+                {/* <span>{hotel.address}</span> */}
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                  <span className="font-semibold text-gray-900">{hotel.rating.toFixed(1)}</span>
+                  {/* <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" /> */}
+                  {/* <span className="font-semibold text-gray-900">{hotel.rating.toFixed(1)}</span> */}
                 </div>
                 <span className="text-sm text-gray-500">({hotel.reviewCount} reviews)</span>
               </div>
@@ -165,7 +165,7 @@ export default function HotelsPage() {
                 {hotel.currency} {hotel.price}
               </p>
               <p className="text-sm text-gray-500">per night</p>
-              <p className="text-xs text-gray-400 mt-1">{hotel.priceDescription}</p>
+              {/* <p className="text-xs text-gray-400 mt-1">{hotel.priceDescription}</p> */}
             </div>
           </div>
 
@@ -194,7 +194,7 @@ export default function HotelsPage() {
           {/* Booking Info */}
           <div className="flex items-center justify-between pt-4 border-t border-gray-200">
             <div className="text-sm text-gray-600">
-              <span className="font-medium text-gray-900">{hotel.totalNights} nights</span> • Total: {hotel.currency} {hotel.totalPrice}
+              <span className="font-medium text-gray-900">{hotel.totalNights} nights</span> 
             </div>
             <div className="flex gap-2">
               {hotel.bookingLink && (
@@ -292,7 +292,7 @@ export default function HotelsPage() {
             </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-4">
+          {/* <div className="bg-white rounded-xl shadow-sm p-4">
             <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
               <DollarSign className="w-4 h-4" />
               <span>Price Range</span>
@@ -300,7 +300,7 @@ export default function HotelsPage() {
             <p className="font-medium text-gray-900">
               {hotelsData.currency} {hotelsData.priceStatistics.min} - {hotelsData.priceStatistics.max}/night
             </p>
-          </div>
+          </div> */}
         </div>
 
         {/* Sort Controls */}

@@ -194,7 +194,7 @@ export default function Dashboard() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Total Trips</span>
-                <span className="font-semibold">{trips.length}</span>
+                <span className="font-semibold text-red-700">{trips.length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Completed</span>

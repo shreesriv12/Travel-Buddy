@@ -171,8 +171,9 @@ export default function NewTripPage() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Example: Plan a 5-day trip to Mumbai from Delhi starting October 15th for 2 adults with a budget of $2000"
-                  className="w-full h-32 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  className="w-full h-32 px-4 py-3 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                   required
+
                 />
               </div>
 
