@@ -2,6 +2,7 @@ import { z } from "zod";
 import prisma from "../config/db.js";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage } from "@langchain/core/messages";
+import PDFDocument from "pdfkit";
 
 // --------------------
 // Argument schema
@@ -93,6 +94,88 @@ function formatDate(date) {
 }
 
 // --------------------
+// Generate PDF Buffer (for streaming)
+// --------------------
+export function generatePdfBuffer(plan, trip) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const chunks = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    // Header
+    doc.fontSize(24).fillColor("#2C3E50").text("Travel Roadmap", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(18).fillColor("#34495E").text(trip.destination, { align: "center" });
+    doc.moveDown(0.3);
+    doc.fontSize(12).fillColor("#7F8C8D").text(
+      `${plan.length} Days • ${trip.adults || 1} Adults${trip.children ? ` • ${trip.children} Children` : ""}`,
+      { align: "center" }
+    );
+    doc.moveDown(1);
+
+    // Trip Overview
+    doc.fontSize(14).fillColor("#2C3E50").text("Trip Overview", { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(10).fillColor("#34495E");
+    doc.text(`Dates: ${plan[0].date} to ${plan[plan.length - 1].date}`);
+    doc.text(`Total Budget: $${plan[0].budget.total_estimated}`);
+    doc.text(`Daily Budget: $${plan[0].budget.daily_estimated}`);
+    doc.moveDown(1.5);
+
+    // Daily Itinerary
+    plan.forEach((day, idx) => {
+      if (doc.y > 650) doc.addPage();
+
+      // Day Header
+      doc.fontSize(16).fillColor("#E74C3C").text(`Day ${day.day} - ${day.date}`, { underline: true });
+      doc.moveDown(0.3);
+
+      // Weather
+      doc.fontSize(10).fillColor("#3498DB");
+      doc.text(`Weather: ${day.weather.condition} | ${day.weather.temp_low}°C - ${day.weather.temp_high}°C`);
+      doc.moveDown(0.3);
+
+      // Daily Summary
+      doc.fontSize(10).fillColor("#7F8C8D");
+      doc.text(`Estimated Time: ${day.est_hours} hours | Budget: $${day.budget.daily_estimated}`);
+      doc.moveDown(0.5);
+
+      // Places
+      day.places.forEach((place, pIdx) => {
+        if (doc.y > 700) doc.addPage();
+
+        doc.fontSize(12).fillColor("#2C3E50").text(`${pIdx + 1}. ${place.name}`);
+        doc.fontSize(9).fillColor("#95A5A6");
+        doc.text(`   ${place.area} • ${place.category} • ${place.suggested_time_hrs} hrs`, { indent: 20 });
+        doc.fontSize(9).fillColor("#34495E");
+        doc.text(`   ${place.description}`, { indent: 20 });
+        doc.moveDown(0.5);
+      });
+
+      doc.moveDown(1);
+      
+      if (idx < plan.length - 1) {
+        doc.strokeColor("#BDC3C7").lineWidth(1).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+        doc.moveDown(1);
+      }
+    });
+
+    // Footer
+    doc.fontSize(8).fillColor("#95A5A6").text(
+      `Generated on ${new Date().toLocaleDateString()} | Powered by AI Trip Planner`,
+      50,
+      doc.page.height - 50,
+      { align: "center" }
+    );
+
+    doc.end();
+  });
+}
+
+// --------------------
 // Main Execute
 // --------------------
 export async function itineraryExecute(rawArgs) {
@@ -105,7 +188,6 @@ export async function itineraryExecute(rawArgs) {
   const totalBudget = args.budgetResult?.budget?.total ?? trip.total_budget ?? 1000;
   const dailyBudget = Math.round(totalBudget / args.days);
 
-  // Fetch weather for days
   const weatherData = await prisma.weatherData.findMany({
     where: {
       trip_id: args.tripId,
@@ -114,18 +196,14 @@ export async function itineraryExecute(rawArgs) {
     orderBy: { date: "asc" },
   });
 
-  // Fetch POIs
   let pois = [];
   try { pois = await fetchBestPlaces({ destination: trip.destination, days: args.days, startDate: args.startDate }); } 
   catch(e) { console.error("POI fetch failed:", e.message); pois = []; }
 
-  // Allocate POIs
   const dailyBuckets = allocatePoisToDays(pois, args.days);
-
   const baseDate = args.startDate ? new Date(args.startDate) : new Date(trip.start_date);
   const plan = [];
 
-  // Clear existing itinerary items
   await prisma.itineraryItem.deleteMany({ where: { trip_id: args.tripId } });
 
   for (let i = 0; i < args.days; i++) {
@@ -134,7 +212,6 @@ export async function itineraryExecute(rawArgs) {
     const dateStr = formatDate(dayDate);
 
     const dayWeather = weatherData.find(w => formatDate(w.date) === dateStr) || {};
-
     const dayPois = dailyBuckets[i] || [];
 
     const dayPlan = {
@@ -158,7 +235,6 @@ export async function itineraryExecute(rawArgs) {
 
     plan.push(dayPlan);
 
-    // Store in DB
     await prisma.itineraryItem.create({
       data: {
         trip_id: trip.id,
@@ -176,7 +252,6 @@ export async function itineraryExecute(rawArgs) {
     });
   }
 
-  // Store full plan in Itinerary table
   await prisma.itinerary.create({
     data: {
       trip_id: trip.id,
@@ -186,7 +261,6 @@ export async function itineraryExecute(rawArgs) {
     },
   });
 
-  // Print the plan
   console.table(plan.map(d => ({
     day: d.day,
     date: d.date,
@@ -195,15 +269,17 @@ export async function itineraryExecute(rawArgs) {
     places: d.places.map(p => p.name).join(", ")
   })));
 
-  return { summary: `Generated ${args.days}-day itinerary for ${trip.destination}`, tripId: trip.id, plan };
+  return { 
+    summary: `Generated ${args.days}-day itinerary for ${trip.destination}`, 
+    tripId: trip.id, 
+    plan,
+    itineraryId: trip.id
+  };
 }
 
-// --------------------
-// Export agent
-// --------------------
 export const itineraryAgent = {
   name: "itineraryAgent",
-  description: "AI-powered itinerary generator with daily POIs, weather, and budgets.",
+  description: "AI-powered itinerary generator with daily POIs, weather, budgets, and PDF export.",
   jsonSchema: {
     type: "object",
     properties: {
@@ -220,3 +296,4 @@ export const itineraryAgent = {
   validate: args => ItineraryArgs.parse(args),
   execute: itineraryExecute,
 };
+

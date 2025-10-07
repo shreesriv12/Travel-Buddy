@@ -13,7 +13,9 @@ import {
   ChevronUp,
   Sun,
   Cloud,
-  Loader2
+  Loader2,
+  Download,
+  FileText
 } from 'lucide-react';
 
 interface Place {
@@ -68,6 +70,7 @@ export default function ItineraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     fetchItinerary();
@@ -101,6 +104,52 @@ export default function ItineraryPage() {
       setError(err instanceof Error ? err.message : 'Failed to load itinerary');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:5000/api/itinerary/download-pdf/${tripId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to download PDF');
+      }
+
+      // Get the blob from response
+      const blob = await response.blob();
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Itinerary_${tripId}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      // Show success message (optional)
+      alert('PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Download error:', err);
+      alert('Failed to download PDF. Please try again.');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -166,21 +215,76 @@ export default function ItineraryPage() {
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <button
-            onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back to Overview
-          </button>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Back to Overview
+            </button>
+            
+            {/* Download PDF Button */}
+            <button
+              onClick={handleDownloadPDF}
+              disabled={downloading}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {downloading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Generating PDF...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-5 h-5" />
+                  <span>Download PDF</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Title */}
+        {/* Title with PDF Download */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Daily Itinerary</h1>
-          <p className="text-gray-600">{itineraryData.summary}</p>
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Daily Itinerary</h1>
+              <p className="text-gray-600">{itineraryData.summary}</p>
+            </div>
+            <div className="ml-4">
+              <FileText className="w-12 h-12 text-blue-500" />
+            </div>
+          </div>
+          
+          {/* Quick Download Card */}
+          <div className="mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-1">Download Your Travel Roadmap</h3>
+                <p className="text-sm text-gray-600">Get a beautifully formatted PDF with all your trip details</p>
+              </div>
+              <button
+                onClick={handleDownloadPDF}
+                disabled={downloading}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {downloading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-5 h-5" />
+                    <span>Download PDF</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Timeline */}
@@ -301,9 +405,28 @@ export default function ItineraryPage() {
           </div>
         </div>
 
-        {/* Total Summary */}
+        {/* Total Summary with Download Option */}
         <div className="mt-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl p-6 text-white">
-          <h3 className="text-xl font-bold mb-4">Trip Summary</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold">Trip Summary</h3>
+            <button
+              onClick={handleDownloadPDF}
+              disabled={downloading}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition disabled:bg-gray-300 disabled:text-gray-500"
+            >
+              {downloading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Generating...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  <span className="text-sm">Save as PDF</span>
+                </>
+              )}
+            </button>
+          </div>
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <p className="text-blue-200 text-sm mb-1">Total Days</p>

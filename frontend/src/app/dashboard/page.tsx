@@ -1,4 +1,3 @@
-// app/dashboard/page.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -11,7 +10,8 @@ import {
   CheckCircle, 
   AlertCircle,
   LogOut,
-  Plane
+  Plane,
+  TrendingUp
 } from 'lucide-react';
 
 interface User {
@@ -153,7 +153,7 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Action Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Plan New Trip Card */}
           <div 
             onClick={() => router.push('/dashboard/new')}
@@ -175,6 +175,16 @@ export default function Dashboard() {
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">My Trips</h3>
             <p className="text-gray-600">View and manage all your trips</p>
+          </div>
+
+          {/* Compare Trips Card - NEW */}
+          <div 
+            onClick={() => router.push('/dashboard/compare')}
+            className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-lg transition transform hover:scale-105"
+          >
+            <TrendingUp className="w-12 h-12 mb-4" />
+            <h3 className="text-xl font-bold mb-2">Compare Trips</h3>
+            <p className="text-purple-100">Compare weather, costs, and events across trips</p>
           </div>
 
           {/* Stats Card */}
@@ -279,6 +289,27 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Quick Action Banner - NEW */}
+        {trips.length >= 2 && (
+          <div className="mt-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-6 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold mb-2">Compare Your Trips</h3>
+                <p className="text-purple-100">
+                  You have {trips.length} trips. Compare them to find the best weather, costs, and activities!
+                </p>
+              </div>
+              <button
+                onClick={() => router.push('/dashboard/compare')}
+                className="px-6 py-3 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition font-semibold flex items-center gap-2 flex-shrink-0"
+              >
+                <TrendingUp className="w-5 h-5" />
+                Compare Now
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
