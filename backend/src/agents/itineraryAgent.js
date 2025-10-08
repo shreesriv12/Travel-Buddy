@@ -182,11 +182,17 @@ export async function itineraryExecute(rawArgs) {
   console.log("Starting itinerary generation...");
   const args = ItineraryArgs.parse(rawArgs);
 
-  const trip = await prisma.trip.findUnique({ where: { id: args.tripId } });
+  // Fetch trip with user data for email
+  const trip = await prisma.trip.findUnique({ 
+    where: { id: args.tripId },
+    include: { user: true }
+  });
+  
   if (!trip) throw new Error(`Trip ${args.tripId} not found`);
 
   const totalBudget = args.budgetResult?.budget?.total ?? trip.total_budget ?? 1000;
   const dailyBudget = Math.round(totalBudget / args.days);
+  const userEmail = trip.user?.email;
 
   const weatherData = await prisma.weatherData.findMany({
     where: {

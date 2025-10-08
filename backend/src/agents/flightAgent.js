@@ -1,10 +1,6 @@
-// FlightAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
-import { PrismaClient } from '@prisma/client';
-
-// Instantiate the Prisma Client
-const prisma = new PrismaClient();
+import prisma from "../config/db.js";
 
 // --------------------
 // Argument schema
@@ -34,7 +30,7 @@ const CITY_TO_AIRPORT = {
   'ahmedabad': 'AMD',
   'jaipur': 'JAI',
   'lucknow': 'LKO',
-  'india': 'DEL', // Fallback for the country
+  'india': 'DEL',
   
   'new york': 'JFK',
   'london': 'LHR',
@@ -46,8 +42,8 @@ const CITY_TO_AIRPORT = {
   'sydney': 'SYD',
   'toronto': 'YYZ',
   'frankfurt': 'FRA',
-  'usa': 'JFK', // Fallback for the country
-  'france': 'CDG', // Fallback for the country
+  'usa': 'JFK',
+  'france': 'CDG',
 };
 
 // --------------------
@@ -56,7 +52,7 @@ const CITY_TO_AIRPORT = {
 function cityToAirportCode(cityName) {
   const normalized = cityName.toLowerCase().trim();
   const code = CITY_TO_AIRPORT[normalized];
-  return code || null; // Return null if no mapping is found, this is key for debugging
+  return code || null;
 }
 
 // --------------------
@@ -65,18 +61,17 @@ function cityToAirportCode(cityName) {
 async function flightExecute(args) {
   const { origin, destination, departureDate, returnDate, tripId, adults, children, currency } = FlightArgs.parse(args);
 
-  console.log(`[FlightAgent Debug] Starting flight search for Trip ID: ${tripId}`);
-  console.log(`[FlightAgent Debug] Raw inputs: Origin=${origin}, Destination=${destination}, DepartureDate=${departureDate}`);
+  console.log(`[FlightAgent] Starting flight search for Trip ID: ${tripId}`);
+  console.log(`[FlightAgent] Raw inputs: Origin=${origin}, Destination=${destination}, DepartureDate=${departureDate}`);
 
   try {
     const departureCode = cityToAirportCode(origin);
     const arrivalCode = cityToAirportCode(destination);
 
-    console.log(`[FlightAgent Debug] Converted codes: departureCode=${departureCode}, arrivalCode=${arrivalCode}`);
+    console.log(`[FlightAgent] Converted codes: departureCode=${departureCode}, arrivalCode=${arrivalCode}`);
 
-    // If a valid airport code is not found, throw a specific error
     if (!departureCode || !arrivalCode) {
-      const errorMessage = `Invalid or unsupported origin/destination: "${origin}" to "${destination}". Please use a specific city name or airport code (e.g., 'New York', 'Mumbai').`;
+      const errorMessage = `Invalid or unsupported origin/destination: "${origin}" to "${destination}". Please use a specific city name or airport code.`;
       throw new Error(errorMessage);
     }
     
@@ -92,7 +87,7 @@ async function flightExecute(args) {
         api_key: process.env.SERPAPI_KEY,
     };
     
-    console.log("[FlightAgent Debug] Sending request to SerpApi with params:", requestParams);
+    console.log("[FlightAgent] Sending request to SerpApi with params:", requestParams);
     
     const response = await new Promise((resolve, reject) => {
       getJson(requestParams, (result) => {
@@ -101,7 +96,6 @@ async function flightExecute(args) {
           return;
         }
         if (result.error) {
-          // Reject with the raw API error for debugging
           reject(new Error(result.error));
           return;
         }
@@ -109,7 +103,7 @@ async function flightExecute(args) {
       });
     });
 
-    console.log(`[FlightAgent Debug] Received successful response from SerpApi.`);
+    console.log(`[FlightAgent] Received successful response from SerpApi.`);
     
     // Process flights
     const flights = response.best_flights?.map(flight => ({
@@ -179,7 +173,6 @@ async function flightExecute(args) {
   } catch (err) {
     console.error("FlightAgent Error:", err.message);
 
-    // Instead of fallback, we will just return a structured error
     const errorResult = {
       summary: `Flight search failed. Original error: ${err.message}`,
       bestFlights: [],

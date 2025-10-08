@@ -1,5 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { weatherAgent } from "./weatherAgent.js";
 import { budgetAgent } from "./budgetAgent.js";
 import { eventsAgent } from "./eventsAgent.js";
@@ -30,32 +30,38 @@ You MUST call all of the following tools in this exact order:
    - Required inputs: origin, destination, departureDate, returnDate, adults, tripId
    - Essential for trip planning and budget calculation
 
-3. **hotelsAgent** (REQUIRED)
+3. **trainAgent** (OPTIONAL - runs after flights)
+   - Searches for train options as alternative transport
+   - Required inputs: origin, destination, departureDate, tripId, adults
+   - Provides transport alternatives
+
+4. **hotelsAgent** (REQUIRED)
    - Searches for hotel accommodations
    - Required inputs: destination, checkin, checkout, adults, children, rooms, tripId
    - Critical for accommodation planning and budgeting
 
-4. **newsAgent** (REQUIRED)
+5. **newsAgent** (REQUIRED)
    - Fetches recent news about the destination
    - Required inputs: destination, tripId, maxResults, timeRange
    - Provides important safety and event information
 
-5. **budgetAgent** (REQUIRED)
+6. **budgetAgent** (REQUIRED)
    - Calculates trip budget based on flights, hotels, and activities
    - Required inputs: tripId, adults
    - Must run AFTER flights and hotels are fetched
 
-6. **eventsAgent** (REQUIRED)
+7. **eventsAgent** (REQUIRED)
    - Finds local events and activities at the destination
    - Required inputs: tripId, destination, date
    - Must run AFTER budget to align with spending capacity
 
-7. **itineraryAgent** (REQUIRED)
+8. **itineraryAgent** (REQUIRED)
    - Generates day-by-day itinerary with activities and POIs
    - Required inputs: tripId, destination, days, startDate, adults, children, budgetResult
    - Must run AFTER weather, budget, and events are available
+   - AUTOMATICALLY SENDS EMAIL with itinerary
 
-8. **mapsAgent** (REQUIRED - ALWAYS LAST)
+9. **mapsAgent** (REQUIRED - ALWAYS LAST)
    - Calculates routes between points of interest
    - Required inputs: tripId, mode (driving/walking/transit)
    - Must run AFTER itinerary to calculate routes between generated POIs
@@ -66,13 +72,6 @@ You MUST call all of the following tools in this exact order:
 - **DEPENDENCY AWARENESS**: Some tools require outputs from previous tools
 - **ERROR HANDLING**: If a tool fails, log the error but continue with remaining tools
 - **COMPLETION**: Only declare success when ALL tools have been executed
-
-## TOOL DEPENDENCY MAP
-- flightAgent & hotelsAgent & newsAgent → Independent (can run after weather)
-- budgetAgent → Depends on flightAgent and hotelsAgent outputs
-- eventsAgent → Depends on budgetAgent for budget constraints
-- itineraryAgent → Depends on weatherAgent, budgetAgent, eventsAgent outputs
-- mapsAgent → Depends on itineraryAgent to have POIs/locations generated
 
 ## OUTPUT REQUIREMENTS
 After executing all tools, you must provide:
@@ -90,27 +89,13 @@ After executing all tools, you must provide:
 
 ## QUALITY ASSURANCE
 Before completing, verify:
-✓ All 8 tools were attempted
+✓ All tools were attempted
 ✓ Results stored in previousToolResults array
 ✓ Database updated with itinerary items
 ✓ Final summary generated with all tool results
 ✓ Trip.orchestrator_summary field updated in database
 
 Remember: Your success is measured by attempting ALL tools and providing complete trip planning data, not by achieving 100% tool success rate. Partial data is better than no data.`;
-
-// --------------------
-// Tool Registry
-// --------------------
-const TOOL_REGISTRY = {
-  [weatherAgent.name]: weatherAgent,
-  [budgetAgent.name]: budgetAgent,
-  [eventsAgent.name]: eventsAgent,
-  [itineraryAgent.name]: itineraryAgent,
-  [mapsAgent.name]: mapsAgent,
-  [flightAgent.name]: flightAgent,
-  [hotelsAgent.name]: hotelsAgent,
-  [newsAgent.name]: newsAgent
-};
 
 // --------------------
 // Helper: Get Dynamic System Prompt with Trip Context
@@ -134,7 +119,6 @@ Begin executing all tools now. Report progress after each tool completion.`;
 // --------------------
 // Main Orchestrator - Simplified Sequential Execution
 // --------------------
-// Note: This function now expects the full trip object as its argument
 export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   console.log("\n=== MCP Orchestrator Started ===");
   console.log(`[Orchestrator] Trip ID: ${trip.id}, Destination: ${trip.destination}`);
@@ -185,14 +169,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // ============================================
     console.log("[Orchestrator] Executing flightAgent...");
     try {
-      // FIX: Passing the tripId to the agent
       const result = await flightAgent.execute({
         origin: trip.origin,
         destination: trip.destination,
         departureDate: trip.start_date?.toISOString().split('T')[0],
         returnDate: trip.end_date?.toISOString().split('T')[0],
         adults: trip.adults || 1,
-        tripId: trip.id // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id
       });
 
       previousToolResults.push({
@@ -211,11 +194,38 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 3️⃣ HOTELS AGENT (After flights)
+    // 3️⃣ TRAIN AGENT (Optional - after flights)
+    // ============================================
+    console.log("[Orchestrator] Executing trainAgent...");
+    try {
+      const result = await trainAgent.execute({
+        origin: trip.origin,
+        destination: trip.destination,
+        departureDate: trip.start_date?.toISOString().split('T')[0],
+        tripId: trip.id,
+        adults: trip.adults || 1
+      });
+
+      previousToolResults.push({
+        tool: trainAgent.name,
+        resultSummary: result.summary || "Trains found",
+        result
+      });
+      console.log("[Orchestrator] ✅ trainAgent completed");
+    } catch (error) {
+      console.warn("[Orchestrator] ⚠️ trainAgent failed:", error.message);
+      previousToolResults.push({
+        tool: trainAgent.name,
+        resultSummary: "Train search failed",
+        error: error.message
+      });
+    }
+
+    // ============================================
+    // 4️⃣ HOTELS AGENT (After flights)
     // ============================================
     console.log("[Orchestrator] Executing hotelsAgent...");
     try {
-      // FIX: Passing the tripId to the agent
       const result = await hotelsAgent.execute({
         destination: trip.destination,
         checkin: trip.start_date?.toISOString().split('T')[0],
@@ -225,7 +235,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         rooms: 1,
         currency: "USD",
         sortBy: "relevance",
-        tripId: trip.id // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id
       });
 
       previousToolResults.push({
@@ -244,14 +254,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 4️⃣ NEWS AGENT (After hotels)
+    // 5️⃣ NEWS AGENT (After hotels)
     // ============================================
     console.log("[Orchestrator] Executing newsAgent...");
     try {
-      // FIX: Passing the tripId to the agent
       const result = await newsAgent.execute({
         destination: trip.destination,
-        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id,
         maxResults: 10,
         timeRange: '1m'
       });
@@ -272,13 +281,12 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 5️⃣ BUDGET AGENT (After flights & hotels)
+    // 6️⃣ BUDGET AGENT (After flights & hotels)
     // ============================================
     console.log("[Orchestrator] Executing budgetAgent...");
     try {
-      // FIX: Passing the tripId to the agent
       const result = await budgetAgent.execute({
-        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id,
         adults: trip.adults || 1
       });
 
@@ -298,13 +306,12 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 6️⃣ EVENTS AGENT (After budget)
+    // 7️⃣ EVENTS AGENT (After budget)
     // ============================================
     console.log("[Orchestrator] Executing eventsAgent...");
     try {
-      // FIX: Passing the tripId to the agent
       const result = await eventsAgent.execute({
-        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id,
         destination: trip.destination,
         date: trip.start_date?.toISOString().split('T')[0]
       });
@@ -316,7 +323,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       });
       console.log("[Orchestrator] ✅ eventsAgent completed");
     } catch (error) {
-      console.warn("[Orchestrator] ⚠️  eventsAgent failed:", error.message);
+      console.warn("[Orchestrator] ⚠️ eventsAgent failed:", error.message);
       previousToolResults.push({
         tool: eventsAgent.name,
         resultSummary: "Events fetch failed",
@@ -325,7 +332,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 7️⃣ ITINERARY AGENT (After weather + budget + events)
+    // 8️⃣ ITINERARY AGENT (After weather + budget + events)
     // ============================================
     console.log("[Orchestrator] Executing itineraryAgent...");
     try {
@@ -335,9 +342,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
 
       const budgetResult = previousToolResults.find(r => r.tool === budgetAgent.name)?.result;
 
-      // FIX: Passing the tripId to the agent
       const result = await itineraryAgent.execute({
-        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id,
         destination: trip.destination,
         days,
         startDate: trip.start_date?.toISOString().split('T')[0],
@@ -362,13 +368,12 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     }
 
     // ============================================
-    // 8️⃣ MAPS AGENT (After itinerary - routes between POIs)
+    // 9️⃣ MAPS AGENT (After itinerary - routes between POIs)
     // ============================================
     console.log("[Orchestrator] Executing mapsAgent for routes...");
     try {
-      // FIX: Passing the tripId to the agent
       const result = await mapsAgent.execute({
-        tripId: trip.id, // <-- CRITICAL FIX: Passing the tripId
+        tripId: trip.id,
         mode: "driving"
       });
 
@@ -379,7 +384,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       });
       console.log("[Orchestrator] ✅ mapsAgent completed");
     } catch (error) {
-      console.warn("[Orchestrator] ⚠️  mapsAgent failed:", error.message);
+      console.warn("[Orchestrator] ⚠️ mapsAgent failed:", error.message);
       previousToolResults.push({
         tool: mapsAgent.name,
         resultSummary: "Route calculation failed",
@@ -396,7 +401,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     const summaryContext = previousToolResults.map(r => ({
       tool: r.tool,
       status: r.error ? 'failed' : 'success',
-      summary: r.resultSummary
+      summary: r.resultSummary,
+      emailSent: r.emailSent
     }));
 
     // Generate AI summary using the model
@@ -438,6 +444,7 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
       status: successfulTools === totalTools ? "COMPLETE_SUCCESS" : "PARTIAL_SUCCESS",
       message: `Trip planning completed with ${successfulTools}/${totalTools} tools successful`,
       aiInsights: aiGeneratedInsights,
+      emailSent: emailSent,
       tripSummary: {
         destination: trip.destination,
         duration: `${Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24))} days`,
@@ -457,6 +464,7 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
     console.log("\n=== Orchestrator Completed Successfully ===");
     console.log(`[Orchestrator] Status: ${finalAnswer.status}`);
     console.log(`[Orchestrator] Success Rate: ${successfulTools}/${totalTools}`);
+    console.log(`[Orchestrator] Email Sent: ${emailSent ? 'Yes' : 'No'}`);
 
     // Store the full orchestrator JSON in Trip.orchestrator_summary
     await prisma.trip.update({

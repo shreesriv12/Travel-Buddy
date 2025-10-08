@@ -39,6 +39,7 @@ model Trip {
   orchestrator_summary Json?
   flights_data    Json?            @default("null")      // JSON data for flights
   hotels_data     Json?            @default("null")      // JSON data for hotels
+  trains_data       Json?          @default("null")
   news_data       Json?            @default("null")      // JSON data for news/articles
 
   created_at           DateTime         @default(now())
