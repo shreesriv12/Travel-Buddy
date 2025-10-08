@@ -81,8 +81,11 @@ export default function Dashboard() {
       if (!tripsRes.ok) {
         throw new Error('Failed to fetch trips');
       }
+
+      
       
       const tripsData = await tripsRes.json();
+      console.log(tripsData)
       setTrips(tripsData.trips || []);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -246,7 +249,7 @@ export default function Dashboard() {
               <div className="flex justify-between">
                 <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>Completed</span>
                 <span className={`font-semibold ${theme === 'dark' ? 'text-green-400' : 'text-green-600'}`}>
-                  {trips.filter(t => t.status === 'COMPLETE_SUCCESS').length}
+                  {trips.filter(t => t.status === 'COMPLETED').length}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -358,7 +361,7 @@ export default function Dashboard() {
                         ? 'border-gray-600 text-gray-400' 
                         : 'border-gray-100 text-gray-500'
                     }`}>
-                      <span>{trip._count.itinerary_items} itinerary items</span>
+                      <span>{trip._count.itinerary_items+1} itinerary items</span>
                       <span>{trip._count.events} events</span>
                       <span>{trip._count.budget_items} budget items</span>
                     </div>
