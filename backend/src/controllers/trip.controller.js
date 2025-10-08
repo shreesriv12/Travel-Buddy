@@ -219,6 +219,10 @@ export const getWeatherData = async (req, res) => {
   }
 };
 
+
+
+
+
 export const getFlights = async (req, res) => {
   try {
     const { id } = req.params;
@@ -258,6 +262,74 @@ export const getFlights = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch flights' });
   }
 };
+
+
+
+// ============================================
+// TRAIN DATA
+// ============================================
+
+export const getTrains = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    console.log(`[Backend Debug] Received request for trains on trip ID: ${id}`);
+
+    const trip = await prisma.trip.findFirst({
+      where: { id, user_id: userId },
+      select: {
+        trains_data: true,
+        origin: true,
+        destination: true,
+        start_date: true,
+      }
+    });
+
+    console.log('[Backend Debug] Trip data fetched:', trip);
+
+    if (!trip) {
+      console.log('[Backend Debug] Trip not found for user.');
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    if (!trip.trains_data) {
+      console.log('[Backend Debug] No trains_data found. Returning a 200 with no data.');
+      return res.status(200).json({
+        summary: null,
+        trains: [],
+        searchParams: {},
+        dataSource: null,
+        error: 'No train data found for this trip',
+        message: 'Run the train agent first to fetch train data'
+      });
+    }
+
+    console.log('[Backend Debug] Trains data found. Sending response.');
+    
+    const trainsData = trip.trains_data;
+    
+    // Format the response with additional trip context
+    const response = {
+      summary: trainsData.summary || `Train options from ${trip.origin} to ${trip.destination}`,
+      origin: trainsData.searchParams?.origin || trip.origin,
+      destination: trainsData.searchParams?.destination || trip.destination,
+      departureDate: trainsData.searchParams?.departureDate || trip.start_date,
+      totalTrains: trainsData.trains?.length || 0,
+      dataSource: trainsData.dataSource || 'Unknown',
+      trains: trainsData.trains || [],
+      searchParams: trainsData.searchParams || {},
+      fallback: trainsData.fallback || false,
+      error: trainsData.error || null
+    };
+
+    return res.status(200).json(response);
+
+  } catch (error) {
+    console.error('[Backend Debug] Error in getTrains:', error);
+    res.status(500).json({ error: 'Failed to fetch trains' });
+  }
+};
+
 
 // ============================================
 // HOTEL DATA
@@ -306,6 +378,7 @@ export const getHotels = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch hotels' });
   }
 };
+
 
 // ============================================
 // NEWS DATA

@@ -2,7 +2,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as tripController from '../controllers/trip.controller.js';
-
 const router = Router();
 
 // ============================================
@@ -25,6 +24,9 @@ router.get('/:id/flights', authenticate, tripController.getFlights);
 
 // Hotel Data
 router.get('/:id/hotels', authenticate, tripController.getHotels);
+
+//Train Data
+router.get('/:id/trains', authenticate, tripController.getTrains);
 
 // News Data
 router.get('/:id/news', authenticate, tripController.getNews);

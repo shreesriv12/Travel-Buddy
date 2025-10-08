@@ -1,4 +1,4 @@
-import { getJson } from "serpapi";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import prisma from "../config/db.js";
 
@@ -15,85 +15,78 @@ const TrainArgs = z.object({
 });
 
 // --------------------
-// City to Coordinates Mapping
+// Initialize Gemini AI
 // --------------------
-const CITY_TO_COORDS = {
-  'delhi': { lat: 28.6139, lng: 77.2090 },
-  'mumbai': { lat: 19.0760, lng: 72.8777 },
-  'bangalore': { lat: 12.9716, lng: 77.5946 },
-  'chennai': { lat: 13.0827, lng: 80.2707 },
-  'kolkata': { lat: 22.5726, lng: 88.3639 },
-  'hyderabad': { lat: 17.3850, lng: 78.4867 },
-  'pune': { lat: 18.5204, lng: 73.8567 },
-  'ahmedabad': { lat: 23.0225, lng: 72.5714 },
-  'jaipur': { lat: 26.9124, lng: 75.7873 },
-  'lucknow': { lat: 26.8467, lng: 80.9462 },
-  
-  'new york': { lat: 40.7128, lng: -74.0060 },
-  'london': { lat: 51.5074, lng: -0.1278 },
-  'paris': { lat: 48.8566, lng: 2.3522 },
-  'dubai': { lat: 25.2048, lng: 55.2708 },
-  'singapore': { lat: 1.3521, lng: 103.8198 },
-};
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 // --------------------
-// Get coordinates for city
+// Generate train options using Gemini
 // --------------------
-function getCoordinates(city) {
-  const normalized = city.toLowerCase().trim();
-  return CITY_TO_COORDS[normalized] || { lat: 0, lng: 0 };
+async function generateTrainOptions(origin, destination, departureDate, adults, currency) {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+  const prompt = `You are a train travel assistant. Provide realistic train options from ${origin} to ${destination} on ${departureDate} for ${adults} adult(s).
+
+Return a JSON array of train options with the following structure for each train:
+{
+  "trainName": "Name of the train service",
+  "trainNumber": "Train identification number",
+  "departureTime": "HH:MM format",
+  "arrivalTime": "HH:MM format", 
+  "duration": "X hours Y minutes",
+  "price": number (in ${currency}),
+  "currency": "${currency}",
+  "class": "Class type (e.g., First AC, Second AC, Sleeper, Chair Car)",
+  "stops": [
+    {"station": "Station name", "time": "HH:MM"}
+  ],
+  "serviceProvider": "Railway operator name",
+  "type": "Express/Superfast/Mail/Passenger"
 }
 
-// --------------------
-// Process train data from API response
-// --------------------
-function processTrainData(response, origin, destination, currency) {
-  const directions = response.directions || [];
-  
-  // Filter for transit directions that include trains
-  const trainDirections = directions.filter(direction => {
-    if (direction.travel_mode !== "Transit") return false;
+Provide 4-6 realistic train options with varying prices, classes, and timings. Consider:
+- Real railway operators in the region
+- Realistic travel times based on distance
+- Appropriate pricing tiers
+- Common train classes and types
+- Typical departure times (morning, afternoon, evening, night)
+
+Return ONLY the JSON array, no additional text.`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
     
-    // Check if any trip in this direction is a train
-    const trips = direction.trips || [];
-    return trips.some(trip => {
-      const service = trip.service_run_by?.name || '';
-      return service.toLowerCase().includes('rail') || 
-             service.toLowerCase().includes('train') ||
-             trip.travel_mode?.toLowerCase().includes('train');
-    });
-  });
-
-  const trains = trainDirections.map((direction, index) => {
-    const trainTrips = direction.trips?.filter(trip => 
-      trip.travel_mode?.toLowerCase().includes('train') ||
-      trip.service_run_by?.name?.toLowerCase().includes('rail') ||
-      trip.service_run_by?.name?.toLowerCase().includes('train')
-    ) || [];
-
-    const firstTrip = trainTrips[0];
-    const lastTrip = trainTrips[trainTrips.length - 1];
-
-    return {
-      id: `train_${index + 1}`,
-      trainName: firstTrip?.service_run_by?.name || 'Express Train',
-      trainNumber: `TR${1000 + index}`,
-      departureTime: direction.start_time || firstTrip?.start_stop?.time || 'N/A',
-      arrivalTime: direction.end_time || lastTrip?.end_stop?.time || 'N/A',
-      duration: direction.formatted_duration || 'N/A',
-      price: direction.cost || Math.round(500 + Math.random() * 1500), // Fallback pricing
-      currency: direction.currency || currency,
-      class: "Second AC", // Default class
-      bookingLink: firstTrip?.service_run_by?.route_information || null,
-      stops: trainTrips.map(trip => ({
-        station: trip.start_stop?.name || 'Unknown Station',
-        time: trip.start_stop?.time || 'N/A'
-      })),
-      serviceProvider: firstTrip?.service_run_by?.name || 'Railway Service'
-    };
-  });
-
-  return trains;
+    // Extract JSON from the response
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error("No valid JSON array found in response");
+    }
+    
+    const trains = JSON.parse(jsonMatch[0]);
+    
+    // Add IDs and normalize data
+    return trains.map((train, index) => ({
+      id: `train_${Date.now()}_${index}`,
+      trainName: train.trainName,
+      trainNumber: train.trainNumber,
+      departureTime: train.departureTime,
+      arrivalTime: train.arrivalTime,
+      duration: train.duration,
+      price: train.price,
+      currency: train.currency || currency,
+      class: train.class,
+      bookingLink: null,
+      stops: train.stops || [],
+      serviceProvider: train.serviceProvider,
+      type: train.type,
+      generatedBy: "Google Gemini AI"
+    }));
+  } catch (error) {
+    console.error("[TrainAgent] Gemini API Error:", error.message);
+    throw error;
+  }
 }
 
 // --------------------
@@ -139,105 +132,12 @@ async function trainExecute(args) {
   console.log(`[TrainAgent] From ${origin} to ${destination} on ${departureDate}`);
 
   try {
-    // Get coordinates for origin/destination
-    const originCoords = getCoordinates(origin);
-    const destCoords = getCoordinates(destination);
-
-    if (originCoords.lat === 0 || destCoords.lat === 0) {
-      console.warn(`[TrainAgent] Coordinates not found for ${origin} or ${destination}, using address search`);
-      // Fall back to address-based search
-      const requestParams = {
-        engine: "google_maps_directions",
-        start_addr: origin,
-        end_addr: destination,
-        travel_mode: 3, // Transit mode
-        prefer: "train", // Prefer trains
-        hl: "en",
-        gl: "in", // India focus
-        api_key: process.env.SERPAPI_KEY, // CRITICAL: Add api_key parameter
-      };
-
-      console.log("[TrainAgent] Sending request to SerpApi with addresses");
-      
-      const response = await new Promise((resolve, reject) => {
-        getJson(requestParams, (result) => {
-          if (!result) {
-            reject(new Error("No response from SerpApi"));
-            return;
-          }
-          if (result.error) {
-            reject(new Error(result.error));
-            return;
-          }
-          resolve(result);
-        });
-      });
-
-      console.log(`[TrainAgent] Received response from SerpApi`);
-
-      // Process the train data
-      const trains = processTrainData(response, origin, destination, currency);
-
-      const result = {
-        summary: `Found ${trains.length} train options from ${origin} to ${destination} on ${departureDate}.`,
-        trains: trains,
-        searchParams: {
-          origin,
-          destination,
-          departureDate,
-          adults,
-          currency,
-        },
-        dataSource: "SerpApi"
-      };
-
-      // Store in DB
-      if (tripId) {
-        await prisma.trip.update({
-          where: { id: tripId },
-          data: { trains_data: result },
-        });
-        console.log(`[TrainAgent] Saved train data to trip ${tripId}.`);
-      }
-
-      return result;
-    }
-
-    // Use coordinates-based search if coordinates are available
-    const departTimestamp = new Date(departureDate).getTime();
+    // Generate train options using Gemini AI
+    console.log("[TrainAgent] Requesting train options from Google Gemini AI");
     
-    const requestParams = {
-      engine: "google_maps_directions",
-      start_coords: `${originCoords.lat},${originCoords.lng}`,
-      end_coords: `${destCoords.lat},${destCoords.lng}`,
-      travel_mode: 3, // Transit mode
-      prefer: "train", // Prefer trains
-      time: `depart_at:${departTimestamp}`,
-      hl: "en",
-      gl: "in",
-      api_key: process.env.SERPAPI_KEY, // CRITICAL: Add api_key parameter
-    };
+    const trains = await generateTrainOptions(origin, destination, departureDate, adults, currency);
 
-    console.log("[TrainAgent] Sending request to SerpApi with coordinates");
-
-    const response = await new Promise((resolve, reject) => {
-      getJson(requestParams, (result) => {
-        if (!result) {
-          reject(new Error("No response from SerpApi"));
-          return;
-        }
-        if (result.error) {
-          reject(new Error(result.error));
-          return;
-        }
-        resolve(result);
-      });
-    });
-
-    console.log(`[TrainAgent] Received response from SerpApi`);
-
-    // Process the train data
-    const trains = processTrainData(response, origin, destination, currency);
+    console.log(`[TrainAgent] Generated ${trains.length} train options`);
 
     const result = {
       summary: `Found ${trains.length} train options from ${origin} to ${destination} on ${departureDate}.`,
@@ -249,7 +149,7 @@ async function trainExecute(args) {
         adults,
         currency,
       },
-      dataSource: "SerpApi"
+      dataSource: "Google Gemini AI"
     };
 
     // Store in DB
@@ -299,7 +199,7 @@ async function trainExecute(args) {
 // --------------------
 export const trainAgent = {
   name: "trainAgent",
-  description: "Fetches train options between cities using SerpApi Google Maps Directions with transit mode.",
+  description: "Fetches train options between cities using Google Gemini AI.",
   jsonSchema: {
     type: "object",
     properties: {

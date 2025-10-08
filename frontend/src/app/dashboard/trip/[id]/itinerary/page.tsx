@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useSession, signIn, signOut } from "next-auth/react";
 import {
   ArrowLeft,
   Calendar,
@@ -62,9 +63,12 @@ const CATEGORY_ICONS: { [key: string]: string } = {
 };
 
 export default function ItineraryPage() {
+  console.log('🎬 ItineraryPage component rendering');
+  
   const router = useRouter();
   const params = useParams();
   const tripId = params.id as string;
+  console.log('📍 Trip ID from params:', tripId);
   
   const [itineraryData, setItineraryData] = useState<ItineraryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,117 +76,426 @@ export default function ItineraryPage() {
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
   const [downloading, setDownloading] = useState(false);
 
+  const { data: session } = useSession();
+  console.log('👤 Session state:', session ? 'Authenticated' : 'Not authenticated');
+  console.log('👤 Session details:', session);
+
   useEffect(() => {
+    console.log('🔄 useEffect triggered - calling fetchItinerary');
     fetchItinerary();
   }, [tripId]);
 
   const fetchItinerary = async () => {
+    console.log('📥 fetchItinerary started');
+    console.log('📥 Current tripId:', tripId);
+    
     try {
       const token = localStorage.getItem('token');
+      console.log('🔑 Token from localStorage:', token ? `${token.substring(0, 20)}...` : 'NULL');
       
       if (!token) {
+        console.log('❌ No token found, redirecting to login');
         router.push('/login');
         return;
       }
 
-      const response = await fetch(`http://localhost:5000/api/trips/${tripId}/itinerary`, {
+      const apiUrl = `http://localhost:5000/api/trips/${tripId}/itinerary`;
+      console.log('🌐 Fetching from URL:', apiUrl);
+      console.log('🌐 Request headers:', { 'Authorization': `Bearer ${token.substring(0, 20)}...` });
+
+      const response = await fetch(apiUrl, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
+      console.log('📨 Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url
+      });
+
+      // Check content type before parsing
+      const contentType = response.headers.get('content-type');
+      console.log('📋 Content-Type:', contentType);
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch itinerary');
+        console.log('⚠️ Response not OK, status:', response.status);
+        
+        // If we get HTML instead of JSON, likely an auth error
+        if (contentType?.includes('text/html')) {
+          console.error('❌ Received HTML response instead of JSON - likely authentication error');
+          console.log('🧹 Clearing invalid token from localStorage');
+          localStorage.removeItem('token');
+          console.log('↪️ Redirecting to login');
+          router.push('/login');
+          return;
+        }
+        
+        // Try to parse error message if it's JSON
+        if (contentType?.includes('application/json')) {
+          console.log('📄 Attempting to parse JSON error response');
+          const errorData = await response.json();
+          console.log('📄 Error data:', errorData);
+          throw new Error(errorData.message || 'Failed to fetch itinerary');
+        }
+        
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
+      // Ensure we actually got JSON
+      if (!contentType?.includes('application/json')) {
+        console.error('❌ Server did not return JSON response, got:', contentType);
+        throw new Error('Server did not return JSON response');
+      }
+
+      console.log('✅ Response OK, parsing JSON...');
       const data = await response.json();
-      setItineraryData({
+      console.log('📦 Parsed data:', data);
+      console.log('📦 Data structure:', {
+        hasResultSummary: !!data.resultSummary,
+        hasTripId: !!data.tripId,
+        hasFullPlan: !!data.fullPlan,
+        fullPlanIsArray: Array.isArray(data.fullPlan),
+        fullPlanLength: data.fullPlan?.length
+      });
+      
+      // Validate the response structure
+      if (!data.fullPlan || !Array.isArray(data.fullPlan)) {
+        console.error('❌ Invalid itinerary data structure');
+        console.error('Expected data.fullPlan to be an array, got:', typeof data.fullPlan);
+        throw new Error('Invalid itinerary data structure');
+      }
+
+      console.log('✅ Data validation passed');
+      const itineraryPayload = {
         summary: data.resultSummary,
         tripId: data.tripId,
         plan: data.fullPlan
-      });
+      };
+      console.log('💾 Setting itinerary data:', itineraryPayload);
+      
+      setItineraryData(itineraryPayload);
+      console.log('✅ Itinerary data set successfully');
+      
     } catch (err) {
-      console.error('Error fetching itinerary:', err);
+      console.error('💥 Error in fetchItinerary:', err);
+      console.error('💥 Error type:', err instanceof Error ? 'Error' : typeof err);
+      console.error('💥 Error message:', err instanceof Error ? err.message : String(err));
+      console.error('💥 Error stack:', err instanceof Error ? err.stack : 'N/A');
+      
       setError(err instanceof Error ? err.message : 'Failed to load itinerary');
     } finally {
+      console.log('🏁 fetchItinerary finally block - setting loading to false');
       setLoading(false);
     }
   };
 
   const handleDownloadPDF = async () => {
+    console.log('📄 handleDownloadPDF started');
     setDownloading(true);
+    
     try {
       const token = localStorage.getItem('token');
+      console.log('🔑 Token for PDF download:', token ? `${token.substring(0, 20)}...` : 'NULL');
       
       if (!token) {
+        console.log('❌ No token found for PDF download');
+        alert('Please log in to download PDF');
         router.push('/login');
         return;
       }
 
-      const response = await fetch(`http://localhost:5000/api/itinerary/download-pdf/${tripId}`, {
+      const pdfUrl = `http://localhost:5000/api/itinerary/download-pdf/${tripId}`;
+      console.log('🌐 Fetching PDF from URL:', pdfUrl);
+
+      const response = await fetch(pdfUrl, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
+      console.log('📨 PDF Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
+      const contentType = response.headers.get('content-type');
+      console.log('📋 PDF Content-Type:', contentType);
+
       if (!response.ok) {
-        throw new Error('Failed to download PDF');
+        console.log('⚠️ PDF Response not OK');
+        
+        // Check if we got HTML (auth error)
+        if (contentType?.includes('text/html')) {
+          console.error('❌ Authentication failed - received HTML instead of PDF');
+          localStorage.removeItem('token');
+          alert('Session expired. Please log in again.');
+          router.push('/login');
+          return;
+        }
+
+        // Try to parse JSON error
+        if (contentType?.includes('application/json')) {
+          console.log('📄 Parsing JSON error for PDF download');
+          const errorData = await response.json();
+          console.log('📄 PDF Error data:', errorData);
+          throw new Error(errorData.message || 'Failed to download PDF');
+        }
+
+        throw new Error(`Failed to download PDF: ${response.status} ${response.statusText}`);
       }
 
-      // Get the blob from response
+      // Verify we got a PDF
+      if (!contentType?.includes('application/pdf')) {
+        console.error('❌ Expected PDF but got:', contentType);
+        throw new Error(`Expected PDF but got: ${contentType}`);
+      }
+
+      console.log('✅ PDF response OK, creating blob...');
       const blob = await response.blob();
+      console.log('📦 Blob created, size:', blob.size, 'bytes');
       
-      // Create a download link
+      // Create download link
       const url = window.URL.createObjectURL(blob);
+      console.log('🔗 Object URL created:', url);
+      
+      const filename = `Itinerary_${tripId}_${new Date().toISOString().split('T')[0]}.pdf`;
+      console.log('📝 Download filename:', filename);
+      
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Itinerary_${tripId}_${new Date().toISOString().split('T')[0]}.pdf`;
+      a.download = filename;
       document.body.appendChild(a);
+      console.log('🔗 Download link added to DOM');
+      
       a.click();
+      console.log('🖱️ Download triggered');
       
       // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      console.log('🧹 Cleanup completed');
       
-      // Show success message (optional)
       alert('PDF downloaded successfully!');
+      console.log('✅ PDF download completed successfully');
+      
     } catch (err) {
-      console.error('Download error:', err);
-      alert('Failed to download PDF. Please try again.');
+      console.error('💥 PDF Download error:', err);
+      console.error('💥 Error details:', {
+        type: err instanceof Error ? 'Error' : typeof err,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : 'N/A'
+      });
+      
+      alert(err instanceof Error ? err.message : 'Failed to download PDF. Please try again.');
     } finally {
+      console.log('🏁 handleDownloadPDF finally block');
       setDownloading(false);
     }
   };
 
   const toggleDay = (day: number) => {
+    console.log('🔄 Toggling day:', day);
     setExpandedDays(prev => {
       const newSet = new Set(prev);
       if (newSet.has(day)) {
+        console.log('➖ Collapsing day:', day);
         newSet.delete(day);
       } else {
+        console.log('➕ Expanding day:', day);
         newSet.add(day);
       }
+      console.log('📋 Expanded days:', Array.from(newSet));
       return newSet;
     });
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    console.log('📅 Formatting date:', dateString);
+    const formatted = new Date(dateString).toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'short',
       day: 'numeric',
       year: 'numeric'
     });
+    console.log('📅 Formatted result:', formatted);
+    return formatted;
   };
 
   const getWeatherIcon = (condition: string) => {
+    console.log('🌤️ Getting weather icon for condition:', condition);
     const conditionLower = condition.toLowerCase();
     if (conditionLower.includes('sun') || conditionLower.includes('clear')) {
+      console.log('☀️ Returning sun icon');
       return <Sun className="w-5 h-5 text-yellow-500" />;
     }
+    console.log('☁️ Returning cloud icon');
     return <Cloud className="w-5 h-5 text-gray-500" />;
   };
 
+// Update the saveItinerary function in your page.tsx
+
+const saveItinerary = async () => {
+  console.log('💾 saveItinerary started');
+  console.log('👤 Current session:', session);
+  
+  if (!session) {
+    console.log('❌ No session, prompting user to sign in');
+    alert("Please sign in with Google first");
+    return;
+  }
+
+  console.log('📦 Current itineraryData:', itineraryData);
+  if (!itineraryData || !itineraryData.plan.length) {
+    console.log('❌ No itinerary data available');
+    alert("No itinerary data available");
+    return;
+  }
+
+  try {
+    console.log('🔄 Transforming itinerary data to events...');
+    console.log('📊 Plan length:', itineraryData.plan.length);
+    
+    // Transform the itinerary data to match the API schema
+    const events = itineraryData.plan.flatMap((day, dayIdx) => {
+      console.log(`📅 Processing day ${day.day} (index ${dayIdx}):`, {
+        date: day.date,
+        placesCount: day.places.length
+      });
+      
+      return day.places.map((place, idx) => {
+        const startDate = new Date(day.date);
+        console.log(`  📍 Place ${idx + 1}/${day.places.length}: ${place.name}`);
+        console.log(`    Original date: ${day.date}`);
+        
+        // Space out events throughout the day (starting at 9 AM, with gaps)
+        startDate.setHours(9 + (idx * 2), 0, 0, 0);
+        console.log(`    Start time: ${startDate.toISOString()}`);
+        
+        const endDate = new Date(startDate);
+        endDate.setHours(startDate.getHours() + place.suggested_time_hrs);
+        console.log(`    End time: ${endDate.toISOString()}`);
+        console.log(`    Duration: ${place.suggested_time_hrs} hours`);
+
+        const event = {
+          summary: place.name,
+          description: `${place.description}\n\nLocation: ${place.area}\nCategory: ${place.category}`,
+          startTime: startDate.toISOString(),
+          endTime: endDate.toISOString(),
+          timeZone: "UTC"
+        };
+        
+        console.log(`    Event created:`, event);
+        return event;
+      });
+    });
+
+    console.log('✅ Events transformed, total count:', events.length);
+    console.log('📋 All events:', events);
+
+    // Get token from localStorage
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert("Please log in to sync with Google Calendar");
+      return;
+    }
+
+    // Get Google tokens from session
+    const accessToken = (session as any).accessToken;
+    const refreshToken = (session as any).refreshToken;
+
+    console.log('🔑 Google tokens:', {
+      hasAccessToken: !!accessToken,
+      hasRefreshToken: !!refreshToken
+    });
+
+    if (!accessToken) {
+      alert("Google authentication required. Please sign in with Google.");
+      return;
+    }
+
+    const apiUrl = 'http://localhost:5000/api/calendar/sync';
+    console.log('🌐 Posting to:', apiUrl);
+    console.log('📤 Request body:', { 
+      tripId: itineraryData.tripId,
+      itinerary: events 
+    });
+
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "X-Google-Access-Token": accessToken,
+        "X-Google-Refresh-Token": refreshToken || ''
+      },
+      body: JSON.stringify({ 
+        tripId: itineraryData.tripId,
+        itinerary: events 
+      }),
+    });
+
+    console.log('📨 Calendar sync response:', {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      url: res.url
+    });
+
+    const responseContentType = res.headers.get('content-type');
+    console.log('📋 Response Content-Type:', responseContentType);
+
+    // Check if response is JSON
+    if (!responseContentType?.includes('application/json')) {
+      console.error('❌ Expected JSON but got:', responseContentType);
+      const responseText = await res.text();
+      console.error('📄 Response body (first 500 chars):', responseText.substring(0, 500));
+      alert(`Server returned ${responseContentType} instead of JSON. Check console for details.`);
+      return;
+    }
+
+    console.log('✅ Response is JSON, parsing...');
+    const data = await res.json();
+    console.log('📦 Parsed response data:', data);
+    
+    if (data.success) {
+      console.log('✅ Calendar sync successful!');
+      console.log('📊 Events added:', data.count || events.length);
+      alert(`Successfully added ${data.count || events.length} events to your Google Calendar!`);
+    } else {
+      console.error('❌ Calendar sync failed');
+      console.error('Error message:', data.message);
+      alert(`Failed: ${data.message || "Unknown error"}`);
+    }
+  } catch (err) {
+    console.error('💥 Calendar sync error:', err);
+    console.error('💥 Error details:', {
+      type: err instanceof Error ? 'Error' : typeof err,
+      name: err instanceof Error ? err.name : 'N/A',
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : 'N/A'
+    });
+    
+    if (err instanceof SyntaxError && err.message.includes('JSON')) {
+      console.error('💥 JSON parsing error - server likely returned HTML');
+      alert("Server returned invalid response. Check the console for details.");
+    } else {
+      alert("Failed to add events to calendar. Please try again.");
+    }
+  }
+};
+
+  console.log('🎨 Rendering component with state:', {
+    loading,
+    error,
+    hasItineraryData: !!itineraryData,
+    downloading
+  });
+
   if (loading) {
+    console.log('⏳ Rendering loading state');
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -194,6 +507,7 @@ export default function ItineraryPage() {
   }
 
   if (error || !itineraryData) {
+    console.log('❌ Rendering error state:', { error, hasItineraryData: !!itineraryData });
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -210,6 +524,13 @@ export default function ItineraryPage() {
     );
   }
 
+  console.log('✅ Rendering main itinerary view');
+  console.log('📊 Itinerary stats:', {
+    daysCount: itineraryData.plan.length,
+    totalPlaces: itineraryData.plan.reduce((sum, day) => sum + day.places.length, 0),
+    expandedDays: Array.from(expandedDays)
+  });
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -217,7 +538,10 @@ export default function ItineraryPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <button
-              onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
+              onClick={() => {
+                console.log('🔙 Back button clicked, navigating to overview');
+                router.push(`/dashboard/trip/${tripId}/overview`);
+              }}
               className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -287,6 +611,45 @@ export default function ItineraryPage() {
           </div>
         </div>
 
+        {/* Google Auth & Save */}
+        <div className="mb-6 p-4 border rounded-lg bg-white shadow-sm">
+          {!session ? (
+            <div className="text-center">
+              <p className="text-gray-600 mb-3">Save your itinerary to Google Calendar</p>
+              <button
+                onClick={() => {
+                  console.log('🔐 Sign in button clicked');
+                  signIn("google");
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
+                Sign in with Google
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-gray-900">Welcome, {session.user?.name}</h2>
+                <button
+                  onClick={() => {
+                    console.log('👋 Sign out button clicked');
+                    signOut();
+                  }}
+                  className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-sm"
+                >
+                  Sign Out
+                </button>
+              </div>
+              <button
+                onClick={saveItinerary}
+                className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
+              >
+                Save Itinerary to Google Calendar
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Timeline */}
         <div className="relative">
           {/* Vertical Line */}
@@ -296,6 +659,7 @@ export default function ItineraryPage() {
           <div className="space-y-6">
             {itineraryData.plan.map((day) => {
               const isExpanded = expandedDays.has(day.day);
+              console.log(`🗓️ Rendering day ${day.day}, expanded: ${isExpanded}`);
               
               return (
                 <div key={day.day} className="relative">

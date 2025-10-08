@@ -1,382 +1,325 @@
-// app/dashboard/trip/[id]/events/page.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import {
-  ArrowLeft,
-  PartyPopper,
-  Calendar,
-  MapPin,
-  DollarSign,
-  ExternalLink,
-  Loader2,
-  Star,
-  Filter,
-  Building2,
-} from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, Trash2, Eye, Plus, Loader2 } from 'lucide-react';
 
-interface Event {
-  id: string;
+// --- Interface Definitions for Type Safety ---
+
+interface TripCount {
+  itinerary_items: number;
+  events: number;
+  budget_items: number;
+}
+
+interface Trip {
+  id: string; // Assuming unique string ID (e.g., UUID)
   title: string;
-  venue: string;
-  description: string;
-  location: string;
-  start_datetime: string;
-  end_datetime: string;
-  category: string;
-  price: number;
-  booking_url: string | null;
-  is_recommended: boolean;
-  relevance_score: number;
+  destination: string;
+  start_date: string; // ISO Date string
+  end_date: string;   // ISO Date string
+  adults: number;
+  status: 'planning' | 'in_progress' | 'completed';
+  _count: TripCount;
 }
 
-interface EventsData {
-  tripId: string;
-  totalEvents: number;
-  recommendedCount: number;
-  events: Event[];
+interface DeleteModalState {
+  show: boolean;
+  tripId: string | null;
+  tripTitle: string;
 }
 
-const CATEGORY_COLORS: { [key: string]: string } = {
-  'cultural': 'bg-purple-100 text-purple-700',
-  'music': 'bg-pink-100 text-pink-700',
-  'sports': 'bg-green-100 text-green-700',
-  'entertainment': 'bg-yellow-100 text-yellow-700',
-  'food': 'bg-orange-100 text-orange-700',
-  'festival': 'bg-red-100 text-red-700',
-  'art': 'bg-indigo-100 text-indigo-700',
-  'general': 'bg-gray-100 text-gray-700',
-};
+// --- Component Start ---
 
-const CATEGORY_ICONS: { [key: string]: string } = {
-  'cultural': '🎭',
-  'music': '🎵',
-  'sports': '⚽',
-  'entertainment': '🎪',
-  'food': '🍽️',
-  'festival': '🎉',
-  'art': '🎨',
-  'general': '📅',
-};
+const API_BASE_URL = 'http://localhost:5000/api';
 
-export default function EventsPage() {
-  const router = useRouter();
-  const params = useParams();
-  const tripId = params.id as string;
-
-  const [eventsData, setEventsData] = useState<EventsData | null>(null);
-  const [loading, setLoading] = useState(true);
+const Trips: React.FC = () => {
+  // Use explicit types for state
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [showRecommendedOnly, setShowRecommendedOnly] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ show: false, tripId: null, tripTitle: '' });
 
   useEffect(() => {
-    fetchEvents();
-  }, [tripId]);
+    fetchTrips();
+  }, []);
 
-  const fetchEvents = async () => {
+  const fetchTrips = async () => {
     try {
+      setLoading(true);
+      setError(null); // Clear previous errors
       const token = localStorage.getItem('token');
-
+      
       if (!token) {
-        router.push('/login');
+        setError('Please login to view your trips');
+        setLoading(false);
         return;
       }
 
-      const response = await fetch(`http://localhost:5000/api/trips/${tripId}/events`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const response = await fetch(`${API_BASE_URL}/trips`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch events');
+        throw new Error('Failed to fetch trips. Please check API status.');
       }
 
       const data = await response.json();
-      setEventsData(data);
+      // Ensure data.trips conforms to Trip[] shape
+      setTrips(data.trips as Trip[] || []); 
+      setError(null);
     } catch (err) {
-      console.error('Error fetching events:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load events');
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      setError(message);
+      console.error('Error fetching trips:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+  // Explicitly type tripId as string
+  const handleDeleteTrip = async (tripId: string) => {
+    setDeleteModal({ show: false, tripId: null, tripTitle: '' }); // Close modal immediately
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Authentication token missing. Please log in.');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/trips/${tripId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete trip on the server.');
+      }
+
+      // Update state to remove the deleted trip
+      setTrips(prevTrips => prevTrips.filter(trip => trip.id !== tripId));
+      setError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Deletion failed.';
+      // Using setError instead of alert()
+      setError('Error deleting trip: ' + message); 
+      console.error('Error deleting trip:', err);
+    }
   };
 
-  const formatTimeRange = (start: string, end: string) => {
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    const startTime = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    const endTime = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    return `${startTime} - ${endTime}`;
+  // Explicitly type input and output
+  const formatDate = (dateString: string): string => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch {
+      return 'Invalid Date';
+    }
   };
 
-  const getCategoryColor = (category: string) => {
-    return CATEGORY_COLORS[category.toLowerCase()] || CATEGORY_COLORS['general'];
+  // Explicitly type inputs and output
+  const calculateDuration = (startDate: string, endDate: string): string => {
+    try {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (isNaN(days)) return 'N/A';
+      if (days < 1) return '1 day'; // Handle same-day trips
+      return days === 1 ? '1 day' : `${days} days`;
+    } catch {
+      return 'Invalid Dates';
+    }
   };
-
-  const getCategoryIcon = (category: string) => {
-    return CATEGORY_ICONS[category.toLowerCase()] || CATEGORY_ICONS['general'];
-  };
-
-  const categories = eventsData
-    ? ['all', ...new Set(eventsData.events.map(e => e.category))]
-    : ['all'];
-
-  const filteredEvents = eventsData?.events.filter(event => {
-    const matchesCategory = filterCategory === 'all' || event.category === filterCategory;
-    const matchesRecommended = !showRecommendedOnly || event.is_recommended;
-    return matchesCategory && matchesRecommended;
-  }) || [];
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading events...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !eventsData) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <PartyPopper className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-red-600 mb-4">{error || 'No events available'}</p>
-          <button
-            onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Back to Overview
-          </button>
+          <Loader2 className="inline-block animate-spin h-12 w-12 text-indigo-600" />
+          <p className="mt-4 text-gray-600">Loading your trips...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <button
-            onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back to Overview
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-800 mb-2">My Trips</h1>
+            <p className="text-gray-600">
+              {trips.length === 0 ? 'No trips yet' : `${trips.length} ${trips.length === 1 ? 'trip' : 'trips'} planned`}
+            </p>
+          </div>
+          {/* Note: This button needs a proper handler for navigation/modal */}
+          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-colors shadow-lg shadow-indigo-300/50 hover:shadow-indigo-400/60">
+            <Plus size={20} />
+            New Trip
           </button>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Title Section */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <PartyPopper className="w-8 h-8 text-blue-600" />
-            <h1 className="text-3xl font-bold text-gray-900">Local Events & Activities</h1>
+        {/* Error State */}
+        {error && (
+          <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-8 shadow-md">
+            <p className="font-medium text-red-800">Error: {error}</p>
           </div>
-          <p className="text-gray-600">
-            {eventsData.totalEvents} events found • {eventsData.recommendedCount} recommended
-          </p>
-        </div>
+        )}
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-xl shadow-sm p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Events</p>
-                <p className="text-2xl font-bold text-gray-900">{eventsData.totalEvents}</p>
-              </div>
-              <Calendar className="w-8 h-8 text-blue-600" />
-            </div>
+        {/* Empty State */}
+        {!error && trips.length === 0 && (
+          <div className="bg-white rounded-xl shadow-xl p-12 text-center border border-gray-100">
+            <MapPin size={64} className="mx-auto text-indigo-300 mb-6" />
+            <h3 className="text-2xl font-semibold text-gray-800 mb-2">No trips yet</h3>
+            <p className="text-gray-600 mb-6">Start planning your next adventure!</p>
+            <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl inline-flex items-center gap-2 transition-colors shadow-lg shadow-indigo-300/50">
+              <Plus size={20} />
+              Plan Your First Trip
+            </button>
           </div>
+        )}
 
-          <div className="bg-white rounded-xl shadow-sm p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Recommended</p>
-                <p className="text-2xl font-bold text-yellow-600">{eventsData.recommendedCount}</p>
-              </div>
-              <Star className="w-8 h-8 text-yellow-500 fill-yellow-500" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Categories</p>
-                <p className="text-2xl font-bold text-gray-900">{categories.length - 1}</p>
-              </div>
-              <Filter className="w-8 h-8 text-blue-600" />
-            </div>
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex items-center gap-3 flex-1">
-              <Filter className="w-5 h-5 text-gray-400" />
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>
-                    {cat === 'all'
-                      ? 'All Categories'
-                      : `${getCategoryIcon(cat)} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer px-4 py-2 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition">
-              <input
-                type="checkbox"
-                checked={showRecommendedOnly}
-                onChange={(e) => setShowRecommendedOnly(e.target.checked)}
-                className="w-4 h-4 text-yellow-600 rounded focus:ring-yellow-500"
-              />
-              <Star className="w-4 h-4 text-yellow-600 fill-yellow-600" />
-              <span className="text-sm font-medium text-yellow-800">Recommended Only</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Events Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredEvents.map((event) => (
+        {/* Trips Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {trips.map((trip) => (
             <div
-              key={event.id}
-              className="bg-white rounded-xl shadow-sm hover:shadow-lg transition overflow-hidden"
+              key={trip.id}
+              className="bg-white rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border border-gray-100"
             >
-              {/* Event Header */}
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2 line-clamp-2">
-                      {event.title}
-                    </h3>
-                    <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                      <Building2 className="w-4 h-4" />
-                      <span className="font-medium">{event.venue}</span>
-                    </div>
-                  </div>
-
-                  {event.is_recommended && (
-                    <div className="flex items-center gap-1 px-3 py-1 bg-yellow-100 rounded-full flex-shrink-0">
-                      <Star className="w-3 h-3 text-yellow-600 fill-yellow-600" />
-                      <span className="text-xs font-medium text-yellow-700">Top Pick</span>
-                    </div>
-                  )}
+              {/* Trip Header */}
+              <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 text-white">
+                <h3 className="text-2xl font-extrabold mb-2 line-clamp-2">{trip.title}</h3>
+                <div className="flex items-center gap-2 text-indigo-200">
+                  <MapPin size={18} />
+                  <span className="text-base">{trip.destination}</span>
                 </div>
+              </div>
 
-                {/* Description */}
-                <p className="text-gray-700 text-sm mb-4 line-clamp-3">
-                  {event.description}
-                </p>
-
-                {/* Event Details */}
-                <div className="space-y-2 mb-4 pb-4 border-b border-gray-100">
-                  <div className="flex items-start gap-2 text-sm text-gray-600">
-                    <Calendar className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              {/* Trip Details */}
+              <div className="p-6 space-y-4">
+                {/* Dates & Duration */}
+                <div className="flex justify-between items-start pt-1">
+                  <div className="flex items-center gap-3">
+                    <Calendar size={20} className="text-indigo-500" />
                     <div>
-                      <p className="font-medium text-gray-900">{formatDate(event.start_datetime)}</p>
-                      <p className="text-xs text-gray-500">{formatTimeRange(event.start_datetime, event.end_datetime)}</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {formatDate(trip.start_date)} - {formatDate(trip.end_date)}
+                      </p>
+                      <p className="text-xs text-gray-500">Travel Dates</p>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <MapPin className="w-4 h-4 flex-shrink-0" />
-                    <span className="line-clamp-1">{event.location}</span>
+                  <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-semibold">
+                    <Clock size={14} />
+                    {calculateDuration(trip.start_date, trip.end_date)}
                   </div>
-
-                  {event.price > 0 && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <DollarSign className="w-4 h-4 text-green-600 flex-shrink-0" />
-                      <span className="font-semibold text-green-600">${event.price}</span>
-                    </div>
-                  )}
-
-                  {event.price === 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
-                        FREE EVENT
-                      </span>
-                    </div>
-                  )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex items-center justify-between gap-3">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getCategoryColor(event.category)}`}>
-                    {getCategoryIcon(event.category)} {event.category}
+                {/* Travelers */}
+                <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
+                  <Users size={20} className="text-gray-400" />
+                  <span className="text-sm text-gray-700 font-medium">
+                    {trip.adults} {trip.adults === 1 ? 'Traveler' : 'Travelers'}
                   </span>
+                </div>
 
-                  {event.booking_url ? (
-                    <a
-                      href={event.booking_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
-                    >
-                      Book Tickets
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  ) : (
-                    <button
-                      disabled
-                      className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed text-sm font-medium"
-                    >
-                      View Details
-                    </button>
-                  )}
+                {/* Trip Stats */}
+                <div className="grid grid-cols-3 gap-2 py-4 border-t border-b border-gray-100">
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-indigo-600">
+                      {trip._count?.itinerary_items || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">Activities</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-indigo-600">
+                      {trip._count?.events || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">Events</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-indigo-600">
+                      {trip._count?.budget_items || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">Budget Items</p>
+                  </div>
+                </div>
+
+                {/* Status Badge */}
+                <div className="pt-2">
+                  <span className={`inline-block px-4 py-1 rounded-full text-sm font-semibold ${
+                    trip.status === 'completed' ? 'bg-green-100 text-green-700' :
+                    trip.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                    'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {trip.status === 'planning' ? 'Planning' :
+                     trip.status === 'in_progress' ? 'In Progress' : 'Completed'}
+                  </span>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4 border-t border-gray-100">
+                  <button
+                    onClick={() => window.location.href = `/trips/${trip.id}`}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-md hover:shadow-lg"
+                  >
+                    <Eye size={16} />
+                    View Details
+                  </button>
+                  <button
+                    onClick={() => setDeleteModal({ show: true, tripId: trip.id, tripTitle: trip.title })}
+                    className="bg-white border border-red-300 hover:bg-red-50 text-red-600 p-3 rounded-xl transition-colors shadow-md"
+                    title="Delete Trip"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
             </div>
           ))}
         </div>
+      </div>
 
-        {/* Empty State */}
-        {filteredEvents.length === 0 && (
-          <div className="bg-white rounded-xl p-12 text-center">
-            <PartyPopper className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Events Found</h3>
-            <p className="text-gray-600 mb-4">
-              {showRecommendedOnly
-                ? 'No recommended events match your filters. Try showing all events.'
-                : 'No events match your current filters. Try adjusting your selection.'}
+      {/* Delete Confirmation Modal */}
+      {deleteModal.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 transition-opacity">
+          <div className="bg-white rounded-xl max-w-sm w-full p-8 shadow-2xl transform scale-100 transition-transform">
+            <div className="text-center mb-6">
+              <Trash2 size={40} className="mx-auto text-red-500 mb-4" />
+              <h3 className="text-2xl font-bold text-gray-800">Confirm Deletion</h3>
+            </div>
+            <p className="text-gray-600 text-center mb-8">
+              Are you sure you want to delete the trip: <strong className="text-indigo-600">"{deleteModal.tripTitle}"</strong>? This action cannot be undone.
             </p>
-            {(showRecommendedOnly || filterCategory !== 'all') && (
+            <div className="flex gap-4">
               <button
-                onClick={() => {
-                  setShowRecommendedOnly(false);
-                  setFilterCategory('all');
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                onClick={() => setDeleteModal({ show: false, tripId: null, tripTitle: '' })}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 px-4 rounded-xl font-medium transition-colors"
               >
-                Clear Filters
+                Cancel
               </button>
-            )}
+              <button
+                // Use non-null assertion since tripId is guaranteed to be set when modal.show is true
+                onClick={() => handleDeleteTrip(deleteModal.tripId!)} 
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 px-4 rounded-xl font-medium transition-colors shadow-md shadow-red-300/50"
+              >
+                Delete Trip
+              </button>
+            </div>
           </div>
-        )}
-      </main>
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default Trips;
