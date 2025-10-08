@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { io, Socket } from 'socket.io-client';
 import { 
   Calendar, 
   MapPin, 
@@ -11,7 +12,8 @@ import {
   AlertCircle,
   LogOut,
   Plane,
-  TrendingUp
+  TrendingUp,
+  Loader2
 } from 'lucide-react';
 
 interface User {
@@ -42,10 +44,77 @@ export default function Dashboard() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [processingTrips, setProcessingTrips] = useState<Set<string>>(new Set());
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     fetchDashboardData();
+    initializeWebSocket();
+
+    return () => {
+      if (socketRef.current?.connected) {
+        socketRef.current.disconnect();
+      }
+    };
   }, []);
+
+  const initializeWebSocket = () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const socket = io('http://localhost:5000', {
+      auth: { token },
+      transports: ['polling', 'websocket'],
+      reconnection: true
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('[Dashboard] WebSocket connected');
+    });
+
+    socket.on('trip_update', (data) => {
+      console.log('[Dashboard] Trip update:', data);
+      handleTripUpdate(data);
+    });
+
+    socket.on('disconnect', () => {
+      console.log('[Dashboard] WebSocket disconnected');
+    });
+  };
+
+  const handleTripUpdate = (data: any) => {
+    const { type, tripId, status } = data;
+
+    switch (type) {
+      case 'PROGRESS':
+        // Mark trip as processing
+        if (tripId) {
+          setProcessingTrips(prev => new Set(prev).add(tripId));
+          setTrips(prevTrips =>
+            prevTrips.map(trip =>
+              trip.id === tripId ? { ...trip, status: 'PROCESSING' } : trip
+            )
+          );
+        }
+        break;
+
+      case 'COMPLETE':
+      case 'ERROR':
+        // Trip completed or failed - fetch fresh data
+        if (tripId) {
+          setProcessingTrips(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tripId);
+            return newSet;
+          });
+          // Refresh dashboard data to get latest trip info
+          fetchDashboardData();
+        }
+        break;
+    }
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -56,7 +125,6 @@ export default function Dashboard() {
         return;
       }
 
-      // Fetch user info
       const userRes = await fetch('http://localhost:5000/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -68,7 +136,6 @@ export default function Dashboard() {
       const userData = await userRes.json();
       setUser(userData);
 
-      // Fetch recent trips
       const tripsRes = await fetch('http://localhost:5000/api/trips', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -79,6 +146,15 @@ export default function Dashboard() {
       
       const tripsData = await tripsRes.json();
       setTrips(tripsData.trips || []);
+
+      // Update processing trips set
+      const processing = new Set(
+        (tripsData.trips || [])
+          .filter((t: Trip) => t.status === 'PROCESSING')
+          .map((t: Trip) => t.id)
+      );
+      setProcessingTrips(processing);
+
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       router.push('/login');
@@ -88,6 +164,9 @@ export default function Dashboard() {
   };
 
   const handleLogout = () => {
+    if (socketRef.current?.connected) {
+      socketRef.current.disconnect();
+    }
     localStorage.removeItem('token');
     router.push('/login');
   };
@@ -105,7 +184,7 @@ export default function Dashboard() {
 
   const getStatusIcon = (status: string) => {
     if (status === 'COMPLETE_SUCCESS') return <CheckCircle className="w-4 h-4" />;
-    if (status === 'PROCESSING') return <Clock className="w-4 h-4 animate-spin" />;
+    if (status === 'PROCESSING') return <Loader2 className="w-4 h-4 animate-spin" />;
     if (status === 'FAILED') return <AlertCircle className="w-4 h-4" />;
     return <Calendar className="w-4 h-4" />;
   };
@@ -131,7 +210,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
@@ -150,11 +228,8 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Action Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Plan New Trip Card */}
           <div 
             onClick={() => router.push('/dashboard/new')}
             className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-lg transition transform hover:scale-105"
@@ -164,7 +239,6 @@ export default function Dashboard() {
             <p className="text-blue-100">Start planning your next adventure with AI-powered insights</p>
           </div>
 
-          {/* My Trips Card */}
           <div 
             onClick={() => router.push('/dashboard/trips')}
             className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition cursor-pointer"
@@ -177,7 +251,6 @@ export default function Dashboard() {
             <p className="text-gray-600">View and manage all your trips</p>
           </div>
 
-          {/* Compare Trips Card - NEW */}
           <div 
             onClick={() => router.push('/dashboard/compare')}
             className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-lg transition transform hover:scale-105"
@@ -187,14 +260,13 @@ export default function Dashboard() {
             <p className="text-purple-100">Compare weather, costs, and events across trips</p>
           </div>
 
-          {/* Stats Card */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
             <Calendar className="w-12 h-12 text-blue-600 mb-4" />
             <h3 className="text-xl font-bold text-gray-900 mb-2">Quick Stats</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Total Trips</span>
-                <span className="font-semibold text-red-700">{trips.length}</span>
+                <span className="font-semibold text-gray-900">{trips.length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Completed</span>
@@ -205,14 +277,28 @@ export default function Dashboard() {
               <div className="flex justify-between">
                 <span className="text-gray-600">In Progress</span>
                 <span className="font-semibold text-blue-600">
-                  {trips.filter(t => t.status === 'PROCESSING').length}
+                  {processingTrips.size}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Recent Trips */}
+        {processingTrips.size > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+            <div className="flex items-center gap-3 mb-3">
+              <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+              <h3 className="text-lg font-semibold text-blue-900">
+                {processingTrips.size} Trip{processingTrips.size > 1 ? 's' : ''} Currently Processing
+              </h3>
+            </div>
+            <p className="text-sm text-blue-700">
+              Your trip{processingTrips.size > 1 ? 's are' : ' is'} being planned by our AI agents. 
+              You'll see real-time updates as each agent completes its task.
+            </p>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-900">Recent Activity</h2>
@@ -240,11 +326,19 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              {trips.slice(0, 3).map((trip) => (
+              {trips.slice(0, 5).map((trip) => (
                 <div
                   key={trip.id}
-                  onClick={() => router.push(`/dashboard/trip/${trip.id}/overview`)}
-                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition cursor-pointer"
+                  onClick={() => {
+                    if (trip.status !== 'PROCESSING') {
+                      router.push(`/dashboard/trip/${trip.id}/overview`);
+                    }
+                  }}
+                  className={`border border-gray-200 rounded-lg p-4 transition ${
+                    trip.status === 'PROCESSING'
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'hover:shadow-md cursor-pointer'
+                  }`}
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
@@ -277,11 +371,20 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  {trip._count && (
+                  {trip._count && trip.status !== 'PROCESSING' && (
                     <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-500">
                       <span>{trip._count.itinerary_items} itinerary items</span>
                       <span>{trip._count.events} events</span>
                       <span>{trip._count.budget_items} budget items</span>
+                    </div>
+                  )}
+
+                  {trip.status === 'PROCESSING' && (
+                    <div className="mt-3 pt-3 border-t border-blue-100">
+                      <div className="flex items-center gap-2 text-xs text-blue-700">
+                        <Clock className="w-3 h-3" />
+                        <span>AI agents are currently planning this trip...</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -290,7 +393,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Quick Action Banner - NEW */}
         {trips.length >= 2 && (
           <div className="mt-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">

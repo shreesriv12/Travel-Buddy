@@ -10,6 +10,7 @@ import { newsAgent } from "./newsAgent.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import { trainAgent } from "./trainAgent.js";
 import prisma from "../config/db.js";
+import { getIO } from "../config/socket.js";
 
 // --------------------
 // System Prompt for AI Orchestrator
@@ -141,10 +142,40 @@ async function storeItineraryData(tripId, result) {
   console.log(`[Orchestrator] Itinerary data processed for trip ${tripId}`);
 }
 
+// Helper to update job progress
+async function updateJobProgress(job, percent, step, agent) {
+  if (!job) return;
+  
+  try {
+    await job.updateProgress({
+      percent,
+      step,
+      agent,
+      message: `Processing ${agent}...`
+    });
+  } catch (err) {
+    console.error('[Orchestrator] Failed to update job progress:', err.message);
+  }
+}
+
+function emitToUser(userId, eventType, data) {
+  try {
+    const io = getIO();
+    io.to(`user:${userId}`).emit('trip_update', {
+      type: eventType,
+      ...data,
+      timestamp: new Date().toISOString()
+    });
+    console.log(`[Orchestrator] Emitted '${eventType}' to user:${userId}`);
+  } catch (error) {
+    console.error('[Orchestrator] Failed to emit event:', error.message);
+  }
+}
+
 // --------------------
 // Main Orchestrator
 // --------------------
-export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
+export async function runMCPOrchestrator(trip, userId, job = null, { maxSteps = 10 } = {}) {
   console.log("\n=== MCP Orchestrator Started ===");
   console.log(`[Orchestrator] Trip ID: ${trip.id}, Destination: ${trip.destination}`);
 
@@ -172,6 +203,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
 
   try {
     console.log("[Orchestrator] Starting sequential tool execution...");
+    await updateJobProgress(job, 5, 'orchestrator_start', 'Orchestrator');
 
     // Helper to create AgentTask entry
     async function createAgentTask(agentName, taskData, status, result = null, error = null) {
@@ -193,6 +225,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 1️⃣ WEATHER AGENT
     // ============================================
     console.log("[Orchestrator] Executing weatherAgent...");
+    await updateJobProgress(job, 10, 'weather', 'weatherAgent');
+    
     try {
       const taskData = {
         tripId: trip.id,
@@ -232,6 +266,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 2️⃣ FLIGHT AGENT
     // ============================================
     console.log("[Orchestrator] Executing flightAgent...");
+    await updateJobProgress(job, 25, 'flights', 'flightAgent');
+    
     try {
       const taskData = {
         origin: trip.origin,
@@ -291,6 +327,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 2.5️⃣ TRAIN AGENT
     // ============================================
     console.log("[Orchestrator] Executing trainAgent...");
+    await updateJobProgress(job, 30, 'trains', 'trainAgent');
+    
     try {
       const taskData = {
         origin: trip.origin,
@@ -348,6 +386,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 3️⃣ HOTELS AGENT
     // ============================================
     console.log("[Orchestrator] Executing hotelsAgent...");
+    await updateJobProgress(job, 45, 'hotels', 'hotelsAgent');
+    
     try {
       const taskData = {
         destination: trip.destination,
@@ -400,6 +440,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 4️⃣ NEWS AGENT
     // ============================================
     console.log("[Orchestrator] Executing newsAgent...");
+    await updateJobProgress(job, 55, 'news', 'newsAgent');
+    
     try {
       const taskData = {
         destination: trip.destination,
@@ -442,6 +484,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 5️⃣ BUDGET AGENT
     // ============================================
     console.log("[Orchestrator] Executing budgetAgent...");
+    await updateJobProgress(job, 65, 'budget', 'budgetAgent');
+    
     try {
       const taskData = { tripId: trip.id };
       const result = await budgetAgent.execute(taskData);
@@ -470,6 +514,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 6️⃣ EVENTS AGENT
     // ============================================
     console.log("[Orchestrator] Executing eventsAgent...");
+    await updateJobProgress(job, 75, 'events', 'eventsAgent');
+    
     try {
       const taskData = {
         tripId: trip.id,
@@ -526,6 +572,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 7️⃣ ITINERARY AGENT
     // ============================================
     console.log("[Orchestrator] Executing itineraryAgent...");
+    await updateJobProgress(job, 85, 'itinerary', 'itineraryAgent');
+    
     try {
       const days = Math.ceil(
         (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
@@ -574,6 +622,9 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       console.log("[Orchestrator] ✅ itineraryAgent completed");
     } catch (error) {
       console.error("[Orchestrator] ❌ itineraryAgent failed:", error.message);
+      const days = Math.ceil(
+        (new Date(trip.end_date) - new Date(trip.start_date)) / (1000 * 60 * 60 * 24)
+      ) || 3;
       await createAgentTask(itineraryAgent.name, {
         tripId: trip.id,
         destination: trip.destination,
@@ -594,6 +645,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // 8️⃣ MAPS AGENT
     // ============================================
     console.log("[Orchestrator] Executing mapsAgent...");
+    await updateJobProgress(job, 95, 'maps', 'mapsAgent');
+    
     try {
       const taskData = { tripId: trip.id, mode: "driving" };
       const result = await mapsAgent.execute(taskData);
@@ -637,6 +690,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // FINAL: Generate Summary and Response
     // ============================================
     console.log("\n[Orchestrator] All agents completed. Generating final summary...");
+    await updateJobProgress(job, 99, 'finalizing', 'Summary Generation');
 
     // Fetch final data from database
     const [dbItinerary, dbWeather, dbEvents, dbBudgetItems, dbRoutes, dbAgentTasks, tripData] = await Promise.all([

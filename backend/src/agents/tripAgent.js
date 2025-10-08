@@ -1,3 +1,4 @@
+// src/agents/tripAgent.js
 import prisma from "../config/db.js";
 import fetch from "node-fetch";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
@@ -10,9 +11,7 @@ const gemini = new ChatGoogleGenerativeAI({
   model: "gemini-2.0-flash",
 });
 
-// --------------------
 // Fetch coordinates from Geoapify
-// --------------------
 async function getCoordinatesGeoapify(location) {
   try {
     const apiKey = process.env.GEOAPIFY_API_KEY;
@@ -37,9 +36,7 @@ async function getCoordinatesGeoapify(location) {
   }
 }
 
-// --------------------
 // Parse user prompt using Gemini
-// --------------------
 async function parsePromptWithGemini(prompt) {
   const systemPrompt = `
 You are a travel assistant. Parse the user prompt into JSON with these fields:
@@ -82,10 +79,17 @@ Rules:
   }
 }
 
-// --------------------
 // Main trip creation + orchestrator
-// --------------------
-export async function createTripAndRunOrchestrator({ userId, prompt }) {
+export async function createTripAndRunOrchestrator({ userId, prompt, job = null }) {
+  // Update job progress for parsing
+  if (job) {
+    await job.updateProgress({
+      percent: 1,
+      step: 'parsing',
+      message: 'Analyzing your trip request...'
+    });
+  }
+
   // 1️⃣ Parse prompt
   const tripDataRaw = await parsePromptWithGemini(prompt);
 
@@ -107,18 +111,20 @@ export async function createTripAndRunOrchestrator({ userId, prompt }) {
     status: tripDataRaw.status || "planned",
   };
 
-  console.log("=== Debug: Normalized tripData ===");
-  console.log(tripData);
+  // Update progress
+  if (job) {
+    await job.updateProgress({
+      percent: 2,
+      step: 'geocoding',
+      message: 'Finding location coordinates...'
+    });
+  }
 
-  // 4️⃣ Fetch coordinates in parallel
+  // 4️⃣ Fetch coordinates
   const [origin_coords, destination_coords] = await Promise.all([
     getCoordinatesGeoapify(normalizeLocation(tripData.origin)),
     getCoordinatesGeoapify(normalizeLocation(tripData.destination)),
   ]);
-
-  console.log("=== Debug: Coordinates ===");
-  console.log("Origin coords:", origin_coords);
-  console.log("Destination coords:", destination_coords);
 
   // 5️⃣ Create trip in DB
   const trip = await prisma.trip.create({
@@ -138,10 +144,19 @@ export async function createTripAndRunOrchestrator({ userId, prompt }) {
     },
   });
 
-  console.log("=== Debug: Trip object before orchestrator ===");
-  console.log(trip);
+if (job) {
+  job.data.tripId = trip.id; // Store tripId in job data
+  await job.updateProgress({
+    percent: 5,
+    step: 'trip_created',
+    agent: 'Orchestrator',
+    message: 'Trip record created, starting agents...',
+    tripId: trip.id // Include tripId in progress
+  });
+}
 
-  const orchestratorResult = await runMCPOrchestrator(trip)
+  // 6️⃣ Run orchestrator with job reference
+  const orchestratorResult = await runMCPOrchestrator(trip, userId, job);
 
   return {
     tripId: trip.id,
@@ -155,7 +170,7 @@ export async function createTripAndRunOrchestrator({ userId, prompt }) {
     adults: trip.adults,
     total_budget: trip.total_budget,
     status: orchestratorResult.status,
-    orchestratorSummary: orchestratorResult.answer,
+    orchestratorSummary: orchestratorResult.message,
     toolResults: orchestratorResult.toolResults,
   };
 }
