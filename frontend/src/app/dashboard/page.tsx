@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { Sun, Moon, XCircle, Link } from "lucide-react";
 import { useRouter } from 'next/navigation';
 import { 
   Calendar, 
@@ -13,6 +14,7 @@ import {
   Plane,
   TrendingUp
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 
 interface User {
   id: string;
@@ -42,6 +44,7 @@ export default function Dashboard() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+    const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     fetchDashboardData();
@@ -129,19 +132,47 @@ export default function Dashboard() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
+   return (
+    <div className={`min-h-screen ${
+      theme === 'dark' 
+        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' 
+        : 'bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50'
+    }`}>
+      {/* Theme Toggle Button */}
+      <button
+        onClick={toggleTheme}
+        className="fixed top-6 left-6 z-50 p-3 rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm shadow-lg hover:scale-110 transition-all duration-300"
+      >
+        {theme === 'dark' ? (
+          <Sun className="w-6 h-6 text-yellow-500" />
+        ) : (
+          <Moon className="w-6 h-6 text-gray-700" />
+        )}
+      </button>
+
       {/* Header */}
-      <header className="bg-white shadow-sm">
+      <header className={`shadow-sm ${
+        theme === 'dark' 
+          ? 'bg-gray-800/50 backdrop-blur-sm' 
+          : 'bg-white/50 backdrop-blur-sm'
+      }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Travel Planner</h1>
-              <p className="text-sm text-gray-600">Welcome back, {user?.name}</p>
+              <h1 className={`text-2xl font-bold ${
+                theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>Travel Planner</h1>
+              <p className={`text-sm ${
+                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+              }`}>Welcome back, {user?.name}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                theme === 'dark' 
+                  ? 'text-gray-300 hover:text-white hover:bg-gray-700' 
+                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+              }`}
             >
               <LogOut className="w-5 h-5" />
               Logout
@@ -167,17 +198,25 @@ export default function Dashboard() {
           {/* My Trips Card */}
           <div 
             onClick={() => router.push('/dashboard/trips')}
-            className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition cursor-pointer"
+            className={`rounded-xl p-6 shadow-sm hover:shadow-md transition cursor-pointer ${
+              theme === 'dark' 
+                ? 'bg-gray-800/50 backdrop-blur-sm' 
+                : 'bg-white/80 backdrop-blur-sm'
+            }`}
           >
             <div className="flex items-center justify-between mb-4">
-              <MapPin className="w-12 h-12 text-blue-600" />
-              <span className="text-3xl font-bold text-gray-900">{trips.length}</span>
+              <MapPin className={`w-12 h-12 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`} />
+              <span className={`text-3xl font-bold ${
+                theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>{trips.length}</span>
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">My Trips</h3>
-            <p className="text-gray-600">View and manage all your trips</p>
+            <h3 className={`text-xl font-bold mb-2 ${
+              theme === 'dark' ? 'text-white' : 'text-gray-900'
+            }`}>My Trips</h3>
+            <p className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>View and manage all your trips</p>
           </div>
 
-          {/* Compare Trips Card - NEW */}
+          {/* Compare Trips Card */}
           <div 
             onClick={() => router.push('/dashboard/compare')}
             className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-lg transition transform hover:scale-105"
@@ -188,23 +227,29 @@ export default function Dashboard() {
           </div>
 
           {/* Stats Card */}
-          <div className="bg-white rounded-xl p-6 shadow-sm">
-            <Calendar className="w-12 h-12 text-blue-600 mb-4" />
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Quick Stats</h3>
+          <div className={`rounded-xl p-6 shadow-sm ${
+            theme === 'dark' 
+              ? 'bg-gray-800/50 backdrop-blur-sm' 
+              : 'bg-white/80 backdrop-blur-sm'
+          }`}>
+            <Calendar className={`w-12 h-12 mb-4 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`} />
+            <h3 className={`text-xl font-bold mb-2 ${
+              theme === 'dark' ? 'text-white' : 'text-gray-900'
+            }`}>Quick Stats</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">Total Trips</span>
-                <span className="font-semibold text-red-700">{trips.length}</span>
+                <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>Total Trips</span>
+                <span className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{trips.length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Completed</span>
-                <span className="font-semibold text-green-600">
+                <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>Completed</span>
+                <span className={`font-semibold ${theme === 'dark' ? 'text-green-400' : 'text-green-600'}`}>
                   {trips.filter(t => t.status === 'COMPLETE_SUCCESS').length}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">In Progress</span>
-                <span className="font-semibold text-blue-600">
+                <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>In Progress</span>
+                <span className={`font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>
                   {trips.filter(t => t.status === 'PROCESSING').length}
                 </span>
               </div>
@@ -213,13 +258,23 @@ export default function Dashboard() {
         </div>
 
         {/* Recent Trips */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className={`rounded-xl shadow-sm p-6 ${
+          theme === 'dark' 
+            ? 'bg-gray-800/50 backdrop-blur-sm' 
+            : 'bg-white/80 backdrop-blur-sm'
+        }`}>
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Recent Activity</h2>
+            <h2 className={`text-2xl font-bold ${
+              theme === 'dark' ? 'text-white' : 'text-gray-900'
+            }`}>Recent Activity</h2>
             {trips.length > 3 && (
               <button
                 onClick={() => router.push('/dashboard/trips')}
-                className="text-blue-600 hover:text-blue-700 font-medium"
+                className={`font-medium ${
+                  theme === 'dark' 
+                    ? 'text-blue-400 hover:text-blue-300' 
+                    : 'text-blue-600 hover:text-blue-700'
+                }`}
               >
                 View All
               </button>
@@ -228,9 +283,15 @@ export default function Dashboard() {
 
           {trips.length === 0 ? (
             <div className="text-center py-12">
-              <MapPin className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No trips yet</h3>
-              <p className="text-gray-600 mb-6">Start planning your first adventure!</p>
+              <MapPin className={`w-16 h-16 mx-auto mb-4 ${
+                theme === 'dark' ? 'text-gray-600' : 'text-gray-300'
+              }`} />
+              <h3 className={`text-lg font-medium mb-2 ${
+                theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>No trips yet</h3>
+              <p className={`mb-6 ${
+                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+              }`}>Start planning your first adventure!</p>
               <button
                 onClick={() => router.push('/dashboard/new')}
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
@@ -244,14 +305,22 @@ export default function Dashboard() {
                 <div
                   key={trip.id}
                   onClick={() => router.push(`/dashboard/trip/${trip.id}/overview`)}
-                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition cursor-pointer"
+                  className={`rounded-lg p-4 hover:shadow-md transition cursor-pointer ${
+                    theme === 'dark'
+                      ? 'bg-gray-700/50 border border-gray-600'
+                      : 'bg-white border border-gray-200'
+                  }`}
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                      <h3 className={`text-lg font-semibold mb-1 ${
+                        theme === 'dark' ? 'text-white' : 'text-gray-900'
+                      }`}>
                         {trip.title}
                       </h3>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <div className={`flex items-center gap-2 text-sm ${
+                        theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                      }`}>
                         <Plane className="w-4 h-4" />
                         <span>{trip.origin} → {trip.destination}</span>
                       </div>
@@ -262,7 +331,9 @@ export default function Dashboard() {
                     </span>
                   </div>
                   
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
+                  <div className={`flex items-center gap-4 text-sm ${
+                    theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                  }`}>
                     <div className="flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
                       <span>{formatDate(trip.start_date)} - {formatDate(trip.end_date)}</span>
@@ -271,14 +342,20 @@ export default function Dashboard() {
                       {trip.adults} traveler{trip.adults > 1 ? 's' : ''}
                     </div>
                     {trip.total_budget > 0 && (
-                      <div className="font-medium text-blue-600">
+                      <div className={`font-medium ${
+                        theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
+                      }`}>
                         ${trip.total_budget.toLocaleString()}
                       </div>
                     )}
                   </div>
 
                   {trip._count && (
-                    <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-500">
+                    <div className={`mt-3 pt-3 border-t flex gap-4 text-xs ${
+                      theme === 'dark' 
+                        ? 'border-gray-600 text-gray-400' 
+                        : 'border-gray-100 text-gray-500'
+                    }`}>
                       <span>{trip._count.itinerary_items} itinerary items</span>
                       <span>{trip._count.events} events</span>
                       <span>{trip._count.budget_items} budget items</span>
@@ -290,9 +367,9 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Quick Action Banner - NEW */}
+        {/* Quick Action Banner */}
         {trips.length >= 2 && (
-          <div className="mt-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-6 text-white">
+          <div className="mt-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-6 text-white shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-bold mb-2">Compare Your Trips</h3>
@@ -302,7 +379,11 @@ export default function Dashboard() {
               </div>
               <button
                 onClick={() => router.push('/dashboard/compare')}
-                className="px-6 py-3 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition font-semibold flex items-center gap-2 flex-shrink-0"
+                className={`px-6 py-3 rounded-lg transition font-semibold flex items-center gap-2 flex-shrink-0 ${
+                  theme === 'dark'
+                    ? 'bg-white/20 text-white hover:bg-white/30'
+                    : 'bg-white text-purple-600 hover:bg-purple-50'
+                }`}
               >
                 <TrendingUp className="w-5 h-5" />
                 Compare Now
@@ -313,4 +394,5 @@ export default function Dashboard() {
       </main>
     </div>
   );
+  
 }
