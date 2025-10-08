@@ -209,7 +209,7 @@ export default function Chatbot() {
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 placeholder="Ask about destinations or plans..."
-                                className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="flex-1 p-3 border border-gray-300 text-black  rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 disabled={isLoading}
                             />
                             <button
