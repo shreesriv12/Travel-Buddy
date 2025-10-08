@@ -103,6 +103,69 @@ const generateItineraryHTML = (trip, itinerary, budget, weather) => {
   `;
 };
 
+
+// Generate HTML for recommendation email (NEW - for cron jobs)
+const generateRecommendationHTML = (destination, recommendations) => {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }
+        .container { padding: 20px; }
+        .recommendation { background: #f8f9fa; margin: 20px 0; padding: 20px; border-radius: 10px; border-left: 4px solid #667eea; }
+        .category { display: inline-block; background: #667eea; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; margin-bottom: 10px; }
+        .pro-tip { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 10px; font-style: italic; }
+        .seasonal-highlight { background: #e7f3ff; padding: 20px; border-radius: 10px; margin: 20px 0; }
+        .footer { text-align: center; margin-top: 30px; padding: 20px; background: #f0f0f0; border-radius: 10px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✨ Your Personalized Travel Guide</h1>
+        <p>Fresh recommendations for ${destination}</p>
+    </div>
+    
+    <div class="container">
+        <h2>${recommendations.greeting}</h2>
+        
+        <p>Based on your travel history and current trends, here are some amazing places you might love:</p>
+        
+        ${recommendations.recommendations.map(rec => `
+            <div class="recommendation">
+                <span class="category">${rec.category}</span>
+                <h3>${rec.title}</h3>
+                <p>${rec.description}</p>
+                <p><strong>Why now:</strong> ${rec.why_now}</p>
+                <div class="pro-tip">
+                    <strong>💡 Pro Tip:</strong> ${rec.pro_tip}
+                </div>
+            </div>
+        `).join('')}
+        
+        <div class="seasonal-highlight">
+            <h3>🌸 Seasonal Highlight</h3>
+            <p>${recommendations.seasonal_highlight}</p>
+        </div>
+        
+        <p style="font-size: 16px; line-height: 1.8;">${recommendations.closing}</p>
+        
+        <div class="footer">
+            <p>Happy exploring! 🎉</p>
+            <p><em>Your Travel Planning Assistant</em></p>
+            <p>
+                You're receiving this because you've used our travel planning services.<br>
+                <a href="#" style="color: #667eea; text-decoration: none;">Unsubscribe</a> from these recommendations.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+  `;
+};
+
+
 // Send itinerary email
 export const sendItineraryEmail = async (userEmail, trip, itineraryData, budgetData, weatherData) => {
   try {
@@ -131,9 +194,43 @@ export const sendItineraryEmail = async (userEmail, trip, itineraryData, budgetD
   }
 };
 
+
+// Send recommendation email (NEW - for cron jobs)
+export const sendRecommendationEmail = async (userEmail, destination, recommendations) => {
+  try {
+    console.log(`[EmailService] Attempting to send recommendation email to: ${userEmail}`);
+    
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      throw new Error('Email credentials not configured. Please set EMAIL_USER and EMAIL_PASS environment variables.');
+    }
+
+    const transporter = createTransporter();
+    
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: userEmail,
+      subject: `✨ Travel Inspiration: New Places to Explore in ${destination}`,
+      html: generateRecommendationHTML(destination, recommendations),
+    };
+
+    console.log('[EmailService] Sending recommendation email...');
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`✅ Recommendation email sent to ${userEmail}, Message ID: ${result.messageId}`);
+    return { success: true, messageId: result.messageId };
+  } catch (error) {
+    console.error('❌ Failed to send recommendation email:', error);
+    throw new Error(`Recommendation email failed: ${error.message}`);
+  }
+};
+
+
+
+
 // Send simple notification email
 export const sendNotificationEmail = async (userEmail, subject, message) => {
   try {
+    console.log(`[EmailService] Sending notification email to: ${userEmail}`);
+    
     const transporter = createTransporter();
     
     const mailOptions = {
@@ -141,6 +238,19 @@ export const sendNotificationEmail = async (userEmail, subject, message) => {
       to: userEmail,
       subject: subject,
       text: message,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
+            <h2>Travel Buddy Notification</h2>
+          </div>
+          <div style="padding: 20px;">
+            <p>${message.replace(/\n/g, '<br>')}</p>
+          </div>
+          <div style="text-align: center; padding: 20px; background: #f0f0f0;">
+            <p><em>Your Travel Planning Assistant</em></p>
+          </div>
+        </div>
+      `
     };
 
     const result = await transporter.sendMail(mailOptions);
@@ -151,3 +261,36 @@ export const sendNotificationEmail = async (userEmail, subject, message) => {
     throw error;
   }
 };
+
+// Test email connection (NEW - for debugging)
+export const testEmailConnection = async () => {
+  try {
+    console.log('[EmailService] Testing email connection...');
+    
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      throw new Error('Email credentials not configured');
+    }
+
+    const transporter = createTransporter();
+    
+    // Verify connection configuration
+    await transporter.verify();
+    console.log('✅ Email server connection verified successfully');
+    
+    // Send test email
+    const testResult = await sendNotificationEmail(
+      process.env.EMAIL_USER, // Send to yourself
+      '📧 Travel Buddy - Email Test',
+      'This is a test email to verify your email configuration is working correctly.\n\nIf you received this, your email setup is successful!'
+    );
+    
+    console.log('✅ Test email sent successfully');
+    return { success: true, message: 'Email configuration is working correctly' };
+  } catch (error) {
+    console.error('❌ Email connection test failed:', error);
+    throw new Error(`Email test failed: ${error.message}`);
+  }
+};
+
+// Export the transporter creation function for external use
+export { createTransporter };

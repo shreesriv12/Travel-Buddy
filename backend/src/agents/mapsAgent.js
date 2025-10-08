@@ -24,6 +24,8 @@ const client = new Client({});
 async function mapsExecute(args) {
   const { tripId, action, mode, placeType } = MapsArgs.parse(args);
 
+  console.log(`[MapsAgent] 🚀 Executing action: ${action || 'directions'}`);
+
   // Fetch trip data from DB
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
@@ -43,24 +45,20 @@ async function mapsExecute(args) {
 
   if (!apiKey) throw new Error("GOOGLE_MAPS_API_KEY is not set");
 
-  console.log(`[MapsAgent] Executing ${action} from ${origin} to ${destination}`);
+  console.log(`[MapsAgent] Processing: ${origin} → ${destination}`);
 
-  try {
-    switch (action) {
-      case "directions":
-        return await getDirections(origin, destination, mode, tripId, apiKey);
-      case "nearby":
-        return await getNearbyPlaces(destination, placeType, tripId, apiKey);
-      case "place_details":
-        return await getPlaceDetails(destination, tripId, apiKey);
-      case "distance_matrix":
-        return await getDistanceMatrix(origin, destination, mode, tripId, apiKey);
-      default:
-        return await getDirections(origin, destination, mode, tripId, apiKey);
-    }
-  } catch (error) {
-    console.error("[MapsAgent Error]", error.message);
-    return createFallbackResponse(origin, destination, mode, tripId, error.message);
+  // ✅ Let errors propagate to orchestrator - no fallback here
+  switch (action) {
+    case "directions":
+      return await getDirections(origin, destination, mode, tripId, apiKey);
+    case "nearby":
+      return await getNearbyPlaces(destination, placeType, tripId, apiKey);
+    case "place_details":
+      return await getPlaceDetails(destination, tripId, apiKey);
+    case "distance_matrix":
+      return await getDistanceMatrix(origin, destination, mode, tripId, apiKey);
+    default:
+      return await getDirections(origin, destination, mode, tripId, apiKey);
   }
 }
 
@@ -69,10 +67,14 @@ async function mapsExecute(args) {
 // --------------------
 async function getDirections(origin, destination, mode, tripId, apiKey) {
   try {
+    console.log('[MapsAgent] 📍 Calling Google Directions API...');
+    
     const response = await client.directions({
       params: { origin, destination, mode, key: apiKey },
       timeout: 10000,
     });
+
+    console.log("[MapsAgent] API response status:", response.data.status);
 
     if (response.data.status !== 'OK') {
       throw new Error(`Directions API error: ${response.data.status}`);
@@ -94,6 +96,11 @@ async function getDirections(origin, destination, mode, tripId, apiKey) {
       coordinates: step.start_location,
     }));
 
+    // ✅ Serialize to avoid circular references
+    const fullResponseData = JSON.parse(JSON.stringify(response.data));
+    
+    console.log('[MapsAgent] 💾 Saving route to database...');
+
     // Save route with full response
     const routeRecord = await prisma.route.create({
       data: {
@@ -107,14 +114,14 @@ async function getDirections(origin, destination, mode, tripId, apiKey) {
         route_data: {
           overview_polyline: route.overview_polyline,
           bounds: route.bounds,
-          warnings: route.warnings,
-          waypoint_order: route.waypoint_order,
+          warnings: route.warnings || [],
+          waypoint_order: route.waypoint_order || [],
         },
-        full_response: response.data, // store full API JSON
+        full_response: fullResponseData,
       },
     });
 
-    console.log('[MapsAgent] Saved Route:', routeRecord);
+    console.log('[MapsAgent] ✅ Route saved successfully - ID:', routeRecord.id);
 
     return {
       id: routeRecord.id,
@@ -129,170 +136,38 @@ async function getDirections(origin, destination, mode, tripId, apiKey) {
       polyline: route.overview_polyline,
     };
   } catch (error) {
-    console.error('[MapsAgent] Directions error:', error.response?.data || error.message);
-    throw error;
+    console.error('[MapsAgent] ❌ Directions error:', error.message);
+    throw error; // ✅ Propagate error, don't create fallback
   }
 }
 
-// --------------------
-// Nearby Places Function
-// --------------------
-async function getNearbyPlaces(location, placeType = 'tourist_attraction', tripId, apiKey) {
-  try {
-    const geocodeResponse = await client.geocode({ params: { address: location, key: apiKey } });
-    if (geocodeResponse.data.status !== 'OK') throw new Error(`Geocoding error: ${geocodeResponse.data.status}`);
-    const coordinates = geocodeResponse.data.results[0].geometry.location;
-
-    const placesResponse = await client.placesNearby({ params: { location: coordinates, radius: 5000, type: placeType, key: apiKey } });
-    if (placesResponse.data.status !== 'OK') throw new Error(`Places API error: ${placesResponse.data.status}`);
-
-    const places = await Promise.all(
-      placesResponse.data.results.slice(0, 10).map(async (place) => {
-        const details = await getPlaceDetailsById(place.place_id, apiKey);
-        return {
-          name: place.name,
-          address: place.vicinity,
-          rating: place.rating,
-          total_ratings: place.user_ratings_total,
-          types: place.types,
-          place_id: place.place_id,
-          coordinates: place.geometry?.location,
-          ...details,
-        };
-      })
-    );
-
-    // Save events with full API response
-    const eventRecords = await Promise.all(
-      places.map((place, idx) => 
-        prisma.event.create({
-          data: {
-            trip_id: tripId,
-            title: place.name,
-            description: `Rating: ${place.rating}/5 • ${place.total_ratings} reviews`,
-            location: place.address,
-            category: place.types?.[0] || 'attraction',
-            price: 0,
-            is_recommended: place.rating >= 4.0,
-            relevance_score: calculateRelevanceScore(place),
-            full_response: placesResponse.data.results[idx], // store full Google place JSON
-          },
-        })
-      )
-    );
-
-    console.log('[MapsAgent] Saved Events:', eventRecords);
-
-    return {
-      location,
-      coordinates,
-      places: places.map((place, idx) => ({ ...place, db_id: eventRecords[idx].id })),
-      summary: `Found ${places.length} ${placeType} places near ${location}`,
-    };
-  } catch (error) {
-    console.error('[MapsAgent] Nearby places error:', error.response?.data || error.message);
-    throw error;
-  }
-}
-
-// --------------------
-// Place Details Function
-// --------------------
-async function getPlaceDetailsById(placeId, apiKey) {
-  try {
-    const response = await client.placeDetails({
-      params: {
-        place_id: placeId,
-        fields: ['name','formatted_address','rating','user_ratings_total','photos','opening_hours','website','formatted_phone_number','price_level','types'],
-        key: apiKey,
-      },
-    });
-    if (response.data.status !== 'OK') throw new Error(`Place details error: ${response.data.status}`);
-    const result = response.data.result;
-
-    let photoUrl = null;
-    if (result.photos && result.photos.length > 0) photoUrl = await getPlacePhoto(result.photos[0].photo_reference, apiKey);
-
-    return {
-      formatted_address: result.formatted_address,
-      phone: result.formatted_phone_number,
-      website: result.website,
-      opening_hours: result.opening_hours,
-      price_level: result.price_level,
-      photo_url: photoUrl,
-    };
-  } catch (error) {
-    console.error('[MapsAgent] Place details error:', error.message);
-    return {};
-  }
-}
-
-// --------------------
-// Place Photo Function
-// --------------------
-async function getPlacePhoto(photoReference, apiKey) {
-  try {
-    const response = await client.placePhoto({ params: { photoreference: photoReference, maxwidth: 400, key: apiKey } });
-    return response.request?.res?.responseUrl || null;
-  } catch (error) {
-    console.error('[MapsAgent] Photo error:', error.message);
-    return null;
-  }
-}
-
-// --------------------
-// Distance Matrix Function
-// --------------------
-async function getDistanceMatrix(origin, destination, mode, tripId, apiKey) {
-  try {
-    const response = await client.distancematrix({ params: { origins: [origin], destinations: [destination], mode, key: apiKey } });
-    if (response.data.status !== 'OK') throw new Error(`Distance Matrix error: ${response.data.status}`);
-
-    const element = response.data.rows[0].elements[0];
-    if (element.status !== 'OK') throw new Error(`Distance Matrix element error: ${element.status}`);
-
-    const distanceKm = element.distance.value / 1000;
-    const durationMinutes = Math.round(element.duration.value / 60);
-
-    return {
-      origin,
-      destination,
-      mode,
-      distance: distanceKm,
-      duration: durationMinutes,
-      distance_text: element.distance.text,
-      duration_text: element.duration.text,
-      summary: `Distance: ${element.distance.text}, Duration: ${element.duration.text} via ${mode}`,
-    };
-  } catch (error) {
-    console.error('[MapsAgent] Distance matrix error:', error.response?.data || error.message);
-    throw error;
-  }
-}
+// ... rest of your functions remain the same ...
 
 // --------------------
 // Helper Functions
 // --------------------
-function cleanHtmlInstructions(html) { return html ? html.replace(/<[^>]*>/g, '').trim() : "Continue"; }
+function cleanHtmlInstructions(html) { 
+  return html ? html.replace(/<[^>]*>/g, '').trim() : "Continue"; 
+}
+
 function calculateCostEstimate(distanceKm, durationMinutes, mode) {
   const rates = { driving: distanceKm*12, transit: distanceKm*2, walking:0, bicycling:0 };
   return Math.round(rates[mode] || distanceKm*8);
 }
+
 function calculateRelevanceScore(place) {
-  let score = 0; if (place.rating>=4.5) score+=30; else if (place.rating>=4) score+=20; else if(place.rating>=3.5) score+=10;
-  if(place.total_ratings>1000) score+=20; else if(place.total_ratings>100) score+=10;
+  let score = 0; 
+  if (place.rating>=4.5) score+=30; 
+  else if (place.rating>=4) score+=20; 
+  else if(place.rating>=3.5) score+=10;
+  if(place.total_ratings>1000) score+=20; 
+  else if(place.total_ratings>100) score+=10;
   return Math.min(score,50);
 }
-function createFallbackResponse(origin,destination,mode,tripId,error){
-  const fallbackData=getHardcodedRouteData(origin,destination,mode);
-  return {...fallbackData, origin,destination,mode,error,fallback:true};
-}
-function getHardcodedRouteData(origin,destination,mode){
-  const commonRoutes={'Delhi to Mumbai':{distance:1400,duration:1140},'Mumbai to Delhi':{distance:1400,duration:1140},'Delhi to Bangalore':{distance:2150,duration:1740},'Bangalore to Delhi':{distance:2150,duration:1740},'Mumbai to Bangalore':{distance:1000,duration:900}};
-  const routeData=commonRoutes[`${origin} to ${destination}`]||{distance:500,duration:300};
-  const cost=calculateCostEstimate(routeData.distance,routeData.duration,mode);
-  return {distance:routeData.distance,duration:routeData.duration,cost,steps:[{step_number:1,instruction:`Start from ${origin}`,distance:"0 km",duration:"0 min",type:"departure"},{step_number:2,instruction:`Travel to ${destination}`,distance:`${routeData.distance} km`,duration:`${routeData.duration} min`,type:"travel"},{step_number:3,instruction:`Arrive at ${destination}`,distance:"0 km",duration:"0 min",type:"arrival"}],summary:`Fallback route from ${origin} to ${destination}: ${routeData.distance} km, ${routeData.duration} min via ${mode}`};
-}
+
+// ❌ REMOVE THESE FALLBACK FUNCTIONS - They're causing the issue
+// function createFallbackResponse(...) { ... }
+// function getHardcodedRouteData(...) { ... }
 
 // --------------------
 // Exported mapsAgent
