@@ -41,7 +41,7 @@ model Trip {
   hotels_data     Json?            @default("null")      // JSON data for hotels
   trains_data       Json?          @default("null")
   news_data       Json?            @default("null")      // JSON data for news/articles
-   trains_data       Json?          @default("null")
+   
   created_at           DateTime         @default(now())
   updated_at           DateTime         @updatedAt
 
