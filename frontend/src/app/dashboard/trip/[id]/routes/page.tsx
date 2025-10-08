@@ -14,7 +14,6 @@ import {
   ChevronUp,
   Map
 } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
 
 // Interfaces matching your backend structure
 interface Coordinates {
@@ -142,11 +141,9 @@ export default function RoutesPage() {
   const initializeMap = async () => {
     if (!selectedRoute || !mapRef.current) return;
 
-    // Dynamically import Leaflet
-    const L = (await import('leaflet')).default;
-    // Import Leaflet CSS globally in your app (e.g., in _app.tsx or layout.tsx)
-    // import 'leaflet/dist/leaflet.css';
-
+  const L = (await import('leaflet')).default;
+    await import('leaflet/dist/leaflet.css');
+    
     const steps = selectedRoute.fullResponse?.routes?.[0]?.legs?.[0]?.steps || [];
     if (steps.length === 0) return;
 
