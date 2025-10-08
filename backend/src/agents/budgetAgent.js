@@ -152,13 +152,12 @@ async function budgetExecute(args) {
 
   await prisma.budgetItem.createMany({ data: budgetItemsData });
 
-  // Fetch and print all budget items for this trip
   const storedItems = await prisma.budgetItem.findMany({
     where: { trip_id: tripId },
     orderBy: { estimated_amount: "desc" },
   });
 
-  console.log(`\n✅ Stored BudgetItems for trip ${tripId}:`);
+  console.log(`\n Stored BudgetItems for trip ${tripId}:`);
   storedItems.forEach(item => {
     console.log(
       `${item.category} - Estimated: ${item.estimated_amount}, Actual: ${item.actual_amount}, Status: ${item.status}`

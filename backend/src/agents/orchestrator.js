@@ -6,11 +6,9 @@ import { eventsAgent } from "./eventsAgent.js";
 import { itineraryAgent } from "./itineraryAgent.js";
 import { mapsAgent } from "./mapsAgent.js";
 import { flightAgent } from "./flightAgent.js";
+import prisma from "../config/db.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import { newsAgent } from "./newsAgent.js";
-import { trainAgent } from "./trainAgent.js";
-import prisma from "../config/db.js";
-
 // --------------------
 // System Prompt for AI Orchestrator
 // --------------------
@@ -294,7 +292,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
 
       previousToolResults.push({
         tool: budgetAgent.name,
-        resultSummary: result.resultSummary || "Budget calculated",
+        resultSummary: result.summary || "Budget calculated",
         result
       });
       console.log("[Orchestrator] ✅ budgetAgent completed");
@@ -357,8 +355,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       previousToolResults.push({
         tool: itineraryAgent.name,
         resultSummary: result.summary || "Itinerary generated",
-        result,
-        emailSent: result.emailSent || false
+        result
       });
       console.log("[Orchestrator] ✅ itineraryAgent completed");
     } catch (error) {
@@ -442,10 +439,6 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
 
     const successfulTools = previousToolResults.filter(r => !r.error).length;
     const totalTools = previousToolResults.length;
-
-    // Check if email was sent
-    const itineraryResult = previousToolResults.find(r => r.tool === itineraryAgent.name);
-    const emailSent = itineraryResult?.emailSent || false;
 
     const finalAnswer = {
       status: successfulTools === totalTools ? "COMPLETE_SUCCESS" : "PARTIAL_SUCCESS",
