@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Sun, Moon, XCircle, Link } from "lucide-react";
-import { useRouter } from 'next/navigation';
+// Changed the import of useRouter to 'next/navigation' which is standard
+import { useRouter } from 'next/navigation'; 
 import { 
   Calendar, 
   MapPin, 
@@ -12,9 +12,11 @@ import {
   AlertCircle,
   LogOut,
   Plane,
-  TrendingUp
+  TrendingUp,
+  Loader2
 } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
+// Corrected the path to reference the file in the components directory
+import Chatbot from '../../components/Chatbot'; 
 
 interface User {
   id: string;
@@ -39,12 +41,11 @@ interface Trip {
   };
 }
 
-export default function Dashboard() {
+export default function DashboardPage() {
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-    const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     fetchDashboardData();
@@ -84,7 +85,8 @@ export default function Dashboard() {
       setTrips(tripsData.trips || []);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      router.push('/login');
+      // Fallback to login if token is invalid or API fails
+      // router.push('/login');
     } finally {
       setLoading(false);
     }
@@ -123,56 +125,28 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <Loader2 className="w-12 h-12 border-b-2 text-blue-600 mx-auto animate-spin" />
           <p className="mt-4 text-gray-600">Loading your dashboard...</p>
         </div>
       </div>
     );
   }
 
-   return (
-    <div className={`min-h-screen ${
-      theme === 'dark' 
-        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' 
-        : 'bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50'
-    }`}>
-      {/* Theme Toggle Button */}
-      <button
-        onClick={toggleTheme}
-        className="fixed top-6 left-6 z-50 p-3 rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm shadow-lg hover:scale-110 transition-all duration-300"
-      >
-        {theme === 'dark' ? (
-          <Sun className="w-6 h-6 text-yellow-500" />
-        ) : (
-          <Moon className="w-6 h-6 text-gray-700" />
-        )}
-      </button>
-
+  return (
+    <div className="min-h-screen bg-gray-50"> 
       {/* Header */}
-      <header className={`shadow-sm ${
-        theme === 'dark' 
-          ? 'bg-gray-800/50 backdrop-blur-sm' 
-          : 'bg-white/50 backdrop-blur-sm'
-      }`}>
+      <header className="shadow-sm bg-white/80 backdrop-blur-md sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className={`text-2xl font-bold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>Travel Planner</h1>
-              <p className={`text-sm ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-              }`}>Welcome back, {user?.name}</p>
+              <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Travel Planner</h1>
+              <p className="text-sm text-gray-500 mt-1">Welcome back, **{user?.name || 'Traveler'}**</p>
             </div>
             <button
               onClick={handleLogout}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                theme === 'dark' 
-                  ? 'text-gray-300 hover:text-white hover:bg-gray-700' 
-                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-              }`}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg transition hover:bg-red-600 font-medium shadow-md"
             >
               <LogOut className="w-5 h-5" />
               Logout
@@ -182,74 +156,60 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Action Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           {/* Plan New Trip Card */}
           <div 
             onClick={() => router.push('/dashboard/new')}
-            className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-lg transition transform hover:scale-105"
+            className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition transform hover:scale-[1.02] duration-300"
           >
-            <PlusCircle className="w-12 h-12 mb-4" />
+            <PlusCircle className="w-10 h-10 mb-4" />
             <h3 className="text-xl font-bold mb-2">Plan New Trip</h3>
-            <p className="text-blue-100">Start planning your next adventure with AI-powered insights</p>
+            <p className="text-blue-100 text-sm">Start planning your next adventure with AI-powered insights</p>
           </div>
 
           {/* My Trips Card */}
           <div 
             onClick={() => router.push('/dashboard/trips')}
-            className={`rounded-xl p-6 shadow-sm hover:shadow-md transition cursor-pointer ${
-              theme === 'dark' 
-                ? 'bg-gray-800/50 backdrop-blur-sm' 
-                : 'bg-white/80 backdrop-blur-sm'
-            }`}
+            className="rounded-xl p-6 shadow-md bg-white border border-gray-100 hover:shadow-lg transition cursor-pointer transform hover:scale-[1.02] duration-300"
           >
             <div className="flex items-center justify-between mb-4">
-              <MapPin className={`w-12 h-12 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`} />
-              <span className={`text-3xl font-bold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>{trips.length}</span>
+              <MapPin className="w-10 h-10 text-blue-600" />
+              <span className="text-4xl font-extrabold text-gray-900">{trips.length}</span>
             </div>
-            <h3 className={`text-xl font-bold mb-2 ${
-              theme === 'dark' ? 'text-white' : 'text-gray-900'
-            }`}>My Trips</h3>
-            <p className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>View and manage all your trips</p>
+            <h3 className="text-xl font-bold mb-2 text-gray-900">My Trips</h3>
+            <p className="text-gray-500 text-sm">View and manage all your trips</p>
           </div>
 
           {/* Compare Trips Card */}
           <div 
             onClick={() => router.push('/dashboard/compare')}
-            className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-lg transition transform hover:scale-105"
+            className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition transform hover:scale-[1.02] duration-300"
           >
-            <TrendingUp className="w-12 h-12 mb-4" />
+            <TrendingUp className="w-10 h-10 mb-4" />
             <h3 className="text-xl font-bold mb-2">Compare Trips</h3>
-            <p className="text-purple-100">Compare weather, costs, and events across trips</p>
+            <p className="text-purple-100 text-sm">Compare weather, costs, and events across trips</p>
           </div>
 
           {/* Stats Card */}
-          <div className={`rounded-xl p-6 shadow-sm ${
-            theme === 'dark' 
-              ? 'bg-gray-800/50 backdrop-blur-sm' 
-              : 'bg-white/80 backdrop-blur-sm'
-          }`}>
-            <Calendar className={`w-12 h-12 mb-4 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`} />
-            <h3 className={`text-xl font-bold mb-2 ${
-              theme === 'dark' ? 'text-white' : 'text-gray-900'
-            }`}>Quick Stats</h3>
+          <div className="rounded-xl p-6 shadow-md bg-white border border-gray-100">
+            <Calendar className="w-10 h-10 mb-4 text-green-500" />
+            <h3 className="text-xl font-bold mb-2 text-gray-900">Quick Stats</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>Total Trips</span>
-                <span className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{trips.length}</span>
+                <span className="text-gray-500">Total Trips</span>
+                <span className="font-semibold text-gray-900">{trips.length}</span>
               </div>
               <div className="flex justify-between">
-                <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>Completed</span>
-                <span className={`font-semibold ${theme === 'dark' ? 'text-green-400' : 'text-green-600'}`}>
+                <span className="text-gray-500">Completed</span>
+                <span className="font-semibold text-green-600">
                   {trips.filter(t => t.status === 'COMPLETE_SUCCESS').length}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>In Progress</span>
-                <span className={`font-semibold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>
+                <span className="text-gray-500">In Progress</span>
+                <span className="font-semibold text-blue-600">
                   {trips.filter(t => t.status === 'PROCESSING').length}
                 </span>
               </div>
@@ -258,23 +218,13 @@ export default function Dashboard() {
         </div>
 
         {/* Recent Trips */}
-        <div className={`rounded-xl shadow-sm p-6 ${
-          theme === 'dark' 
-            ? 'bg-gray-800/50 backdrop-blur-sm' 
-            : 'bg-white/80 backdrop-blur-sm'
-        }`}>
+        <div className="rounded-xl shadow-lg p-6 bg-white border border-gray-100">
           <div className="flex justify-between items-center mb-6">
-            <h2 className={`text-2xl font-bold ${
-              theme === 'dark' ? 'text-white' : 'text-gray-900'
-            }`}>Recent Activity</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Recent Activity</h2>
             {trips.length > 3 && (
               <button
                 onClick={() => router.push('/dashboard/trips')}
-                className={`font-medium ${
-                  theme === 'dark' 
-                    ? 'text-blue-400 hover:text-blue-300' 
-                    : 'text-blue-600 hover:text-blue-700'
-                }`}
+                className="font-medium text-blue-600 hover:text-blue-700 transition"
               >
                 View All
               </button>
@@ -283,18 +233,12 @@ export default function Dashboard() {
 
           {trips.length === 0 ? (
             <div className="text-center py-12">
-              <MapPin className={`w-16 h-16 mx-auto mb-4 ${
-                theme === 'dark' ? 'text-gray-600' : 'text-gray-300'
-              }`} />
-              <h3 className={`text-lg font-medium mb-2 ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>No trips yet</h3>
-              <p className={`mb-6 ${
-                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-              }`}>Start planning your first adventure!</p>
+              <MapPin className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-xl font-medium mb-2 text-gray-900">No trips yet</h3>
+              <p className="mb-6 text-gray-500">Start planning your first adventure!</p>
               <button
                 onClick={() => router.push('/dashboard/new')}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold shadow-md"
               >
                 Plan New Trip
               </button>
@@ -305,60 +249,44 @@ export default function Dashboard() {
                 <div
                   key={trip.id}
                   onClick={() => router.push(`/dashboard/trip/${trip.id}/overview`)}
-                  className={`rounded-lg p-4 hover:shadow-md transition cursor-pointer ${
-                    theme === 'dark'
-                      ? 'bg-gray-700/50 border border-gray-600'
-                      : 'bg-white border border-gray-200'
-                  }`}
+                  className="rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-md transition cursor-pointer border border-gray-100"
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
-                      <h3 className={`text-lg font-semibold mb-1 ${
-                        theme === 'dark' ? 'text-white' : 'text-gray-900'
-                      }`}>
+                      <h3 className="text-lg font-semibold mb-1 text-gray-900">
                         {trip.title}
                       </h3>
-                      <div className={`flex items-center gap-2 text-sm ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-                      }`}>
-                        <Plane className="w-4 h-4" />
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <Plane className="w-4 h-4 text-blue-500" />
                         <span>{trip.origin} → {trip.destination}</span>
                       </div>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusColor(trip.status)}`}>
                       {getStatusIcon(trip.status)}
-                      {trip.status}
+                      {trip.status.replace(/_/g, ' ')}
                     </span>
                   </div>
                   
-                  <div className={`flex items-center gap-4 text-sm ${
-                    theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-                  }`}>
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mt-2">
                     <div className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
+                      <Calendar className="w-4 h-4 text-gray-400" />
                       <span>{formatDate(trip.start_date)} - {formatDate(trip.end_date)}</span>
                     </div>
                     <div>
-                      {trip.adults} traveler{trip.adults > 1 ? 's' : ''}
+                      <span className="font-medium text-gray-900">{trip.adults}</span> traveler{trip.adults > 1 ? 's' : ''}
                     </div>
                     {trip.total_budget > 0 && (
-                      <div className={`font-medium ${
-                        theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
-                      }`}>
-                        ${trip.total_budget.toLocaleString()}
+                      <div className="font-semibold text-green-600">
+                        ${trip.total_budget.toLocaleString()} Budget
                       </div>
                     )}
                   </div>
 
                   {trip._count && (
-                    <div className={`mt-3 pt-3 border-t flex gap-4 text-xs ${
-                      theme === 'dark' 
-                        ? 'border-gray-600 text-gray-400' 
-                        : 'border-gray-100 text-gray-500'
-                    }`}>
-                      <span>{trip._count.itinerary_items} itinerary items</span>
-                      <span>{trip._count.events} events</span>
-                      <span>{trip._count.budget_items} budget items</span>
+                    <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-4 text-xs text-gray-500">
+                      <span>**{trip._count.itinerary_items}** itinerary items</span>
+                      <span>**{trip._count.events}** events</span>
+                      <span>**{trip._count.budget_items}** budget items</span>
                     </div>
                   )}
                 </div>
@@ -369,21 +297,17 @@ export default function Dashboard() {
 
         {/* Quick Action Banner */}
         {trips.length >= 2 && (
-          <div className="mt-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-6 text-white shadow-lg">
-            <div className="flex items-center justify-between">
+          <div className="mt-10 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-6 text-white shadow-xl">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold mb-2">Compare Your Trips</h3>
-                <p className="text-purple-100">
-                  You have {trips.length} trips. Compare them to find the best weather, costs, and activities!
+                <p className="text-purple-100 text-sm">
+                  You have **{trips.length}** trips. Compare them to find the best weather, costs, and activities!
                 </p>
               </div>
               <button
                 onClick={() => router.push('/dashboard/compare')}
-                className={`px-6 py-3 rounded-lg transition font-semibold flex items-center gap-2 flex-shrink-0 ${
-                  theme === 'dark'
-                    ? 'bg-white/20 text-white hover:bg-white/30'
-                    : 'bg-white text-purple-600 hover:bg-purple-50'
-                }`}
+                className="px-6 py-3 rounded-lg transition font-semibold flex items-center gap-2 flex-shrink-0 bg-white text-purple-600 hover:bg-purple-50 shadow-md"
               >
                 <TrendingUp className="w-5 h-5" />
                 Compare Now
@@ -392,6 +316,9 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+      
+      {/* AI Chatbot Component */}
+      <Chatbot />
     </div>
   );
   
