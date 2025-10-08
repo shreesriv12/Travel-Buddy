@@ -15,6 +15,8 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import Chatbot from '../../components/Chatbot'; 
+
 
 interface User {
   id: string;
@@ -392,6 +394,7 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+      <Chatbot/>
     </div>
   );
   
