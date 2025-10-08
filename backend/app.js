@@ -4,6 +4,7 @@ import agentRoutes from './src/routes/agent.routes.js';
 import tripRoutes from './src/routes/trip.routes.js';
 import itineraryRoutes from './src/routes/itinerary.routes.js';
 import calendarRoutes from './src/routes/calender.routes.js'
+import cronRoutes from './src/routes/cron.routes.js';
 import cors from 'cors';
 
 const app = express();
@@ -38,6 +39,8 @@ app.use('/api/agents', agentRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/itinerary', itineraryRoutes);
 app.use('/api/calendar', calendarRoutes); 
+app.use('/api/cron', cronRoutes);
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
