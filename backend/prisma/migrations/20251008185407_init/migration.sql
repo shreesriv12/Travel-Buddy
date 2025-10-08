@@ -31,8 +31,8 @@ CREATE TABLE "public"."Trip" (
     "orchestrator_summary" JSONB,
     "flights_data" JSONB DEFAULT 'null',
     "hotels_data" JSONB DEFAULT 'null',
-    "news_data" JSONB DEFAULT 'null',
     "trains_data" JSONB DEFAULT 'null',
+    "news_data" JSONB DEFAULT 'null',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 

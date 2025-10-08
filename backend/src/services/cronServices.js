@@ -25,7 +25,7 @@ class CronService {
  // Schedule recommendation emails every minute for testing
 scheduleRecommendationEmails() {
   // Run every minute - for testing
-  const job = cron.schedule('*/2 * * * *', async () => {
+  const job = cron.schedule('*/10 * * * *', async () => {
     console.log('🕒 Running scheduled recommendation emails (TEST MODE - Every minute)...');
     await this.sendScheduledRecommendations();
   }, {
