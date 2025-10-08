@@ -28,10 +28,28 @@ CREATE TABLE "public"."Trip" (
     "status" TEXT NOT NULL,
     "total_budget" DOUBLE PRECISION NOT NULL,
     "summary" JSONB NOT NULL,
+    "orchestrator_summary" JSONB,
+    "flights_data" JSONB DEFAULT 'null',
+    "hotels_data" JSONB DEFAULT 'null',
+    "news_data" JSONB DEFAULT 'null',
+    "trains_data" JSONB DEFAULT 'null',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Trip_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."Itinerary" (
+    "id" TEXT NOT NULL,
+    "trip_id" TEXT NOT NULL,
+    "tool" TEXT NOT NULL,
+    "result_summary" TEXT NOT NULL,
+    "full_plan" JSONB NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Itinerary_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -81,6 +99,7 @@ CREATE TABLE "public"."Route" (
     "duration_minutes" INTEGER NOT NULL,
     "estimated_cost" DOUBLE PRECISION NOT NULL,
     "route_data" JSONB NOT NULL,
+    "full_response" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Route_pkey" PRIMARY KEY ("id")
@@ -91,15 +110,17 @@ CREATE TABLE "public"."Event" (
     "id" TEXT NOT NULL,
     "trip_id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
-    "description" TEXT NOT NULL,
+    "venue" TEXT,
+    "description" TEXT,
     "location" TEXT NOT NULL,
     "start_datetime" TIMESTAMP(3) NOT NULL,
     "end_datetime" TIMESTAMP(3) NOT NULL,
-    "category" TEXT NOT NULL,
-    "price" DOUBLE PRECISION NOT NULL,
+    "category" TEXT,
+    "price" DOUBLE PRECISION,
     "booking_url" TEXT,
-    "is_recommended" BOOLEAN NOT NULL,
-    "relevance_score" DOUBLE PRECISION NOT NULL,
+    "is_recommended" BOOLEAN NOT NULL DEFAULT false,
+    "relevance_score" DOUBLE PRECISION DEFAULT 0,
+    "raw_json" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Event_pkey" PRIMARY KEY ("id")
@@ -112,8 +133,8 @@ CREATE TABLE "public"."BudgetItem" (
     "category" TEXT NOT NULL,
     "item_name" TEXT NOT NULL,
     "estimated_amount" DOUBLE PRECISION NOT NULL,
-    "actual_amount" DOUBLE PRECISION NOT NULL,
-    "status" TEXT NOT NULL,
+    "actual_amount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'Estimated',
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
@@ -166,8 +187,14 @@ CREATE TABLE "public"."TripComparison" (
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "public"."User"("email");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "Itinerary_trip_id_key" ON "public"."Itinerary"("trip_id");
+
 -- AddForeignKey
 ALTER TABLE "public"."Trip" ADD CONSTRAINT "Trip_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."Itinerary" ADD CONSTRAINT "Itinerary_trip_id_fkey" FOREIGN KEY ("trip_id") REFERENCES "public"."Trip"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."ItineraryItem" ADD CONSTRAINT "ItineraryItem_trip_id_fkey" FOREIGN KEY ("trip_id") REFERENCES "public"."Trip"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -188,10 +215,10 @@ ALTER TABLE "public"."BudgetItem" ADD CONSTRAINT "BudgetItem_trip_id_fkey" FOREI
 ALTER TABLE "public"."AgentTask" ADD CONSTRAINT "AgentTask_trip_id_fkey" FOREIGN KEY ("trip_id") REFERENCES "public"."Trip"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_trip_id_fkey" FOREIGN KEY ("trip_id") REFERENCES "public"."Trip"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_trip_id_fkey" FOREIGN KEY ("trip_id") REFERENCES "public"."Trip"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."TripComparison" ADD CONSTRAINT "TripComparison_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
