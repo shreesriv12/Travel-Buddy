@@ -17,7 +17,8 @@ import {
   PartyPopper,
   Newspaper,
   Loader2,
-  TrendingUp
+  TrendingUp,
+  Train
 } from 'lucide-react';
 
 interface TripSummary {
@@ -116,6 +117,13 @@ export default function TripOverviewPage() {
       path: `/dashboard/trip/${tripId}/flights`,
       stat: 'View Options',
       color: 'bg-indigo-500'
+    },
+    {
+      title: 'Train Options',
+      icon: Train,
+      path: `/dashboard/trip/${tripId}/trains`,
+      stat: 'Find Trains',
+      color: 'bg-emerald-500'
     },
     {
       title: 'Hotels',
@@ -286,7 +294,7 @@ export default function TripOverviewPage() {
         <div className="bg-white rounded-xl p-6 shadow-sm">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Explore Your Trip</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {navigationCards.map((card) => (
               <button
                 key={card.path}

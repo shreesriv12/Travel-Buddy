@@ -1,20 +1,15 @@
-// HotelsAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
-import { PrismaClient } from "@prisma/client";
-
-// Instantiate the Prisma Client
-const prisma = new PrismaClient();
+import prisma from "../config/db.js";
 
 // --------------------
 // Argument schema
 // --------------------
-// Updated to include 'tripId'
 const HotelsArgs = z.object({
   destination: z.string(),
   checkin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   checkout: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  tripId: z.string(), // Added tripId, which is required to update the database
+  tripId: z.string(),
   adults: z.number().int().min(1).max(10).default(2),
   children: z.number().int().min(0).max(10).default(0),
   rooms: z.number().int().min(1).max(5).default(1),
@@ -26,7 +21,6 @@ const HotelsArgs = z.object({
 // Main execute function
 // --------------------
 async function hotelsExecute(args) {
-  // Destructure the new 'tripId' argument
   const { destination, checkin, checkout, tripId, adults, children, rooms, currency, sortBy } = HotelsArgs.parse(args);
 
   try {
@@ -179,7 +173,6 @@ async function hotelsExecute(args) {
 
     // Store the fallback data in the database if an error occurs
     if (tripId) {
-        // Fix: Changed 'hotelsData' to 'hotels_data' to match the schema and try block
         await prisma.trip.update({
             where: { id: tripId },
             data: { hotels_data: errorResult },
@@ -237,7 +230,7 @@ export const hotelsAgent = {
         description: "Sort results by (default: relevance)"
       }
     },
-    required: ["destination", "checkin", "checkout", "tripId"] // 'tripId' is now a required argument
+    required: ["destination", "checkin", "checkout", "tripId"]
   },
   validate: (args) => HotelsArgs.parse(args),
   execute: hotelsExecute

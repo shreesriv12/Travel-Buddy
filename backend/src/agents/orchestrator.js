@@ -109,7 +109,7 @@ After executing all tools, you must provide:
 
 ## QUALITY ASSURANCE
 Before completing, verify:
-✓ All 8 tools were attempted
+✓ All tools were attempted
 ✓ Results stored in previousToolResults array
 ✓ AgentTask entries created for each tool
 ✓ Database updated with itinerary items, routes, budget items, etc.
@@ -715,6 +715,7 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
       status: successfulTools === totalTools ? "COMPLETE_SUCCESS" : "PARTIAL_SUCCESS",
       message: `Trip planning completed with ${successfulTools}/${totalTools} tools successful`,
       aiInsights: aiGeneratedInsights,
+      emailSent: emailSent,
       tripSummary: {
         destination: trip.destination,
         startDate: trip.start_date,
@@ -760,6 +761,7 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
     console.log("\n=== Orchestrator Completed Successfully ===");
     console.log(`[Orchestrator] Status: ${finalAnswer.status}`);
     console.log(`[Orchestrator] Success Rate: ${successfulTools}/${totalTools}`);
+    console.log(`[Orchestrator] Email Sent: ${emailSent ? 'Yes' : 'No'}`);
 
     return finalAnswer;
   } catch (error) {

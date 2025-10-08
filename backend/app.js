@@ -15,8 +15,8 @@ const corsOptions = {
   allowedHeaders: [
     "Content-Type", 
     "Authorization",
-    "X-Google-Access-Token",      // ✅ Added for Google Calendar
-    "X-Google-Refresh-Token"      // ✅ Added for Google Calendar
+    "X-Google-Access-Token",    
+    "X-Google-Refresh-Token"      
   ],
   credentials: true,
 };

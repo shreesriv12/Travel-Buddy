@@ -2,6 +2,7 @@ import { z } from "zod";
 import prisma from "../config/db.js";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage } from "@langchain/core/messages";
+import { sendTripItineraryEmail } from "../utils/emailUtils.js";
 import PDFDocument from "pdfkit";
 
 // --------------------
@@ -94,7 +95,7 @@ function formatDate(date) {
 }
 
 // --------------------
-// Generate PDF Buffer (for streaming)
+// Generate PDF Buffer (for streaming/attachment)
 // --------------------
 export function generatePdfBuffer(plan, trip) {
   return new Promise((resolve, reject) => {
@@ -176,18 +177,47 @@ export function generatePdfBuffer(plan, trip) {
 }
 
 // --------------------
+// Send itinerary notification email
+// --------------------
+async function sendItineraryNotification(tripId, userEmail) {
+  try {
+    console.log(`[ItineraryAgent] Attempting to send email to: ${userEmail}`);
+    
+    if (userEmail && process.env.EMAIL_USER) {
+      await sendTripItineraryEmail(tripId, userEmail);
+      console.log(`✅ Itinerary email sent to ${userEmail}`);
+      return true;
+    } else {
+      console.log('⚠️ Email not configured or user email not available');
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Failed to send itinerary email:', error.message);
+    // Don't throw error - email failure shouldn't break itinerary generation
+    return false;
+  }
+}
+
+// --------------------
 // Main Execute
 // --------------------
 export async function itineraryExecute(rawArgs) {
   console.log("Starting itinerary generation...");
   const args = ItineraryArgs.parse(rawArgs);
 
-  const trip = await prisma.trip.findUnique({ where: { id: args.tripId } });
+  // Fetch trip with user data for email
+  const trip = await prisma.trip.findUnique({ 
+    where: { id: args.tripId },
+    include: { user: true }
+  });
+  
   if (!trip) throw new Error(`Trip ${args.tripId} not found`);
 
   const totalBudget = args.budgetResult?.budget?.total ?? trip.total_budget ?? 1000;
   const dailyBudget = Math.round(totalBudget / args.days);
+  const userEmail = trip.user?.email;
 
+  // Fetch weather data
   const weatherData = await prisma.weatherData.findMany({
     where: {
       trip_id: args.tripId,
@@ -196,14 +226,26 @@ export async function itineraryExecute(rawArgs) {
     orderBy: { date: "asc" },
   });
 
+  // Fetch POIs
   let pois = [];
-  try { pois = await fetchBestPlaces({ destination: trip.destination, days: args.days, startDate: args.startDate }); } 
-  catch(e) { console.error("POI fetch failed:", e.message); pois = []; }
+  try { 
+    pois = await fetchBestPlaces({ 
+      destination: trip.destination, 
+      days: args.days, 
+      startDate: args.startDate 
+    }); 
+  } catch(e) { 
+    console.error("POI fetch failed:", e.message); 
+    pois = []; 
+  }
 
+  // Allocate POIs to days
   const dailyBuckets = allocatePoisToDays(pois, args.days);
+
   const baseDate = args.startDate ? new Date(args.startDate) : new Date(trip.start_date);
   const plan = [];
 
+  // Clear existing itinerary items
   await prisma.itineraryItem.deleteMany({ where: { trip_id: args.tripId } });
 
   for (let i = 0; i < args.days; i++) {
@@ -235,6 +277,7 @@ export async function itineraryExecute(rawArgs) {
 
     plan.push(dayPlan);
 
+    // Store in ItineraryItem table
     await prisma.itineraryItem.create({
       data: {
         trip_id: trip.id,
@@ -252,6 +295,7 @@ export async function itineraryExecute(rawArgs) {
     });
   }
 
+  // Store full plan in Itinerary table
   await prisma.itinerary.create({
     data: {
       trip_id: trip.id,
@@ -261,6 +305,15 @@ export async function itineraryExecute(rawArgs) {
     },
   });
 
+  // Send itinerary email (NON-BLOCKING - don't wait for it to complete)
+  let emailSent = false;
+  try {
+    emailSent = await sendItineraryNotification(trip.id, userEmail);
+  } catch (emailError) {
+    console.error('Email sending failed but continuing:', emailError.message);
+  }
+
+  // Print the plan
   console.table(plan.map(d => ({
     day: d.day,
     date: d.date,
@@ -273,13 +326,17 @@ export async function itineraryExecute(rawArgs) {
     summary: `Generated ${args.days}-day itinerary for ${trip.destination}`, 
     tripId: trip.id, 
     plan,
+    emailSent: emailSent,
     itineraryId: trip.id
   };
 }
 
+// --------------------
+// Export agent
+// --------------------
 export const itineraryAgent = {
   name: "itineraryAgent",
-  description: "AI-powered itinerary generator with daily POIs, weather, budgets, and PDF export.",
+  description: "AI-powered itinerary generator with daily POIs, weather, budgets, PDF export, and automatic email sending.",
   jsonSchema: {
     type: "object",
     properties: {
@@ -296,4 +353,3 @@ export const itineraryAgent = {
   validate: args => ItineraryArgs.parse(args),
   execute: itineraryExecute,
 };
-

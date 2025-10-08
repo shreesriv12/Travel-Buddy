@@ -1,18 +1,13 @@
-// NewsAgent.js
 import { getJson } from "serpapi";
 import { z } from "zod";
-import { PrismaClient } from "@prisma/client";
-
-// Instantiate the Prisma Client
-const prisma = new PrismaClient();
+import prisma from "../config/db.js";
 
 // --------------------
 // Argument schema
 // --------------------
-// tripId is now required for database storage
 const NewsArgs = z.object({
   destination: z.string(),
-  tripId: z.string(), // tripId is now required
+  tripId: z.string(),
   maxResults: z.number().int().min(1).max(50).default(10),
   timeRange: z.enum(['1d', '1w', '1m', '1y']).default('1m')
 });
@@ -21,7 +16,6 @@ const NewsArgs = z.object({
 // Main execute function
 // --------------------
 async function newsExecute(args) {
-  // Destructure the new required 'tripId'
   const { destination, tripId, maxResults, timeRange } = NewsArgs.parse(args);
 
   try {
@@ -40,7 +34,6 @@ async function newsExecute(args) {
           return;
         }
 
-        // Check for API errors
         if (result.error) {
           reject(new Error(result.error));
           return;
@@ -127,7 +120,6 @@ async function newsExecute(args) {
 
     // Store the fallback data in the database if an error occurs
     if (tripId) {
-      // FIX: Changed 'newsData' to 'news_data' to match the schema and try block
       await prisma.trip.update({
         where: { id: tripId },
         data: { news_data: errorResult },
@@ -165,7 +157,6 @@ export const newsAgent = {
         description: "Time range for news articles (default: 1m)"
       }
     },
-    // 'tripId' is now a required argument
     required: ["destination", "tripId"]
   },
   validate: (args) => NewsArgs.parse(args),
