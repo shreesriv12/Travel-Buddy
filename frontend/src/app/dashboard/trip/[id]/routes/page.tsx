@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useTheme } from '../../../../context/ThemeContext';
+import {  Sun,Moon, XCircle, CheckCircle, Link } from "lucide-react";
 import {
   ArrowLeft,
   MapPin,
@@ -95,6 +97,7 @@ export default function RoutesPage() {
   const [showMap, setShowMap] = useState(false);
   const mapRef = useRef<any>(null);
   const mapInstanceRef = useRef<any>(null);
+    const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     fetchRoutes();
@@ -261,114 +264,159 @@ export default function RoutesPage() {
   };
 
   const RouteCard = ({ route }: { route: Route }) => {
-    const isExpanded = expandedRoutes.has(route.id);
-    const steps = route.fullResponse?.routes?.[0]?.legs?.[0]?.steps || [];
-    
-    return (
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="p-6">
-          <div 
-            className="cursor-pointer hover:bg-gray-50 transition rounded-lg p-4 -m-4 mb-4"
-            onClick={() => toggleRouteExpansion(route.id)}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="w-5 h-5 text-green-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {route.fromLocation} → {route.toLocation}
-                  </h3>
-                </div>
-                <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full capitalize">
-                  {route.transportMode}
-                </span>
+  const isExpanded = expandedRoutes.has(route.id);
+  const steps = route.fullResponse?.routes?.[0]?.legs?.[0]?.steps || [];
+  
+  return (
+    <div className={`rounded-xl shadow-sm overflow-hidden ${
+      theme === 'dark'
+        ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700'
+        : 'bg-white'
+    }`}>
+      <div className="p-6">
+        <div 
+          className={`cursor-pointer transition rounded-lg p-4 -m-4 mb-4 ${
+            theme === 'dark' ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'
+          }`}
+          onClick={() => toggleRouteExpansion(route.id)}
+        >
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <MapPin className="w-5 h-5 text-green-500" />
+                <h3 className={`text-lg font-semibold ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>
+                  {route.fromLocation} → {route.toLocation}
+                </h3>
               </div>
-              {isExpanded ? (
-                <ChevronUp className="w-5 h-5 text-gray-400" />
-              ) : (
-                <ChevronDown className="w-5 h-5 text-gray-400" />
-              )}
+              <span className={`inline-block px-3 py-1 text-sm font-medium rounded-full capitalize ${
+                theme === 'dark'
+                  ? 'bg-blue-900/30 text-blue-400'
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
+                {route.transportMode}
+              </span>
             </div>
+            {isExpanded ? (
+              <ChevronUp className={`w-5 h-5 ${
+                theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+              }`} />
+            ) : (
+              <ChevronDown className={`w-5 h-5 ${
+                theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+              }`} />
+            )}
+          </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="flex items-center gap-2 text-gray-600">
-                <Navigation className="w-4 h-4" />
-                <div>
-                  <p className="text-xs text-gray-500">Distance</p>
-                  <p className="font-semibold">{route.distanceKm.toFixed(1)} km</p>
-                </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className={`flex items-center gap-2 ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+            }`}>
+              <Navigation className="w-4 h-4" />
+              <div>
+                <p className={`text-xs ${
+                  theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                }`}>Distance</p>
+                <p className={`font-semibold ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>{route.distanceKm.toFixed(1)} km</p>
               </div>
-              <div className="flex items-center gap-2 text-gray-600">
-                <Clock className="w-4 h-4" />
-                <div>
-                  <p className="text-xs text-gray-500">Duration</p>
-                  <p className="font-semibold">{formatDuration(route.durationMinutes)}</p>
-                </div>
+            </div>
+            <div className={`flex items-center gap-2 ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+            }`}>
+              <Clock className="w-4 h-4" />
+              <div>
+                <p className={`text-xs ${
+                  theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                }`}>Duration</p>
+                <p className={`font-semibold ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>{formatDuration(route.durationMinutes)}</p>
               </div>
-              <div className="flex items-center gap-2 text-gray-600">
-                <DollarSign className="w-4 h-4" />
-                <div>
-                  <p className="text-xs text-gray-500">Est. Cost</p>
-                  <p className="font-semibold">{formatCurrency(route.estimatedCost)}</p>
-                </div>
+            </div>
+            <div className={`flex items-center gap-2 ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+            }`}>
+              <DollarSign className="w-4 h-4" />
+              <div>
+                <p className={`text-xs ${
+                  theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                }`}>Est. Cost</p>
+                <p className={`font-semibold ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>{formatCurrency(route.estimatedCost)}</p>
               </div>
             </div>
           </div>
-
-          {steps.length > 0 && (
-            <button
-              onClick={() => handleShowMap(route)}
-              className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2"
-            >
-              <Map className="w-4 h-4" />
-              View Route on Map
-            </button>
-          )}
         </div>
 
-        {isExpanded && steps.length > 0 && (
-          <div className="border-t border-gray-200 bg-gray-50 p-6">
-            <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Navigation className="w-4 h-4" />
-              Turn-by-turn Directions ({steps.length} steps)
-            </h4>
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {steps.map((step, index) => (
-                <div key={index} className="flex gap-4">
-                  <div className="flex flex-col items-center">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
-                      {index + 1}
-                    </div>
-                    {index < steps.length - 1 && (
-                      <div className="w-0.5 h-full bg-blue-200 mt-2" />
-                    )}
-                  </div>
-                  <div className="flex-1 pb-4">
-                    <p 
-                      className="text-gray-900 mb-1"
-                      dangerouslySetInnerHTML={{ __html: step.html_instructions }}
-                    />
-                    <div className="flex gap-4 text-sm text-gray-500 flex-wrap">
-                      <span>{step.distance.text}</span>
-                      <span>•</span>
-                      <span>{step.duration.text}</span>
-                      {step.maneuver && (
-                        <>
-                          <span>•</span>
-                          <span className="capitalize">{step.maneuver.replace(/-/g, ' ')}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {steps.length > 0 && (
+          <button
+            onClick={() => handleShowMap(route)}
+            className="w-full mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2"
+          >
+            <Map className="w-4 h-4" />
+            View Route on Map
+          </button>
         )}
       </div>
-    );
-  };
 
+      {isExpanded && steps.length > 0 && (
+        <div className={`border-t p-6 ${
+          theme === 'dark'
+            ? 'border-gray-700 bg-gray-800/30'
+            : 'border-gray-200 bg-gray-50'
+        }`}>
+          <h4 className={`font-semibold mb-4 flex items-center gap-2 ${
+            theme === 'dark' ? 'text-white' : 'text-gray-900'
+          }`}>
+            <Navigation className="w-4 h-4" />
+            Turn-by-turn Directions ({steps.length} steps)
+          </h4>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {steps.map((step, index) => (
+              <div key={index} className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                    {index + 1}
+                  </div>
+                  {index < steps.length - 1 && (
+                    <div className={`w-0.5 h-full mt-2 ${
+                      theme === 'dark' ? 'bg-blue-800' : 'bg-blue-200'
+                    }`} />
+                  )}
+                </div>
+                <div className="flex-1 pb-4">
+                  <p 
+                    className={`mb-1 ${
+                      theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                    }`}
+                    dangerouslySetInnerHTML={{ __html: step.html_instructions }}
+                  />
+                  <div className={`flex gap-4 text-sm flex-wrap ${
+                    theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                  }`}>
+                    <span>{step.distance.text}</span>
+                    <span>•</span>
+                    <span>{step.duration.text}</span>
+                    {step.maneuver && (
+                      <>
+                        <span>•</span>
+                        <span className="capitalize">{step.maneuver.replace(/-/g, ' ')}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -399,67 +447,113 @@ export default function RoutesPage() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <button
-            onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back to Overview
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Route Details</h1>
-          <p className="text-gray-600">
-            {routesData.totalRoutes} {routesData.totalRoutes === 1 ? 'route' : 'routes'} found for your trip
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {routesData.routes.map((route) => (
-            <RouteCard key={route.id} route={route} />
-          ))}
-        </div>
-      </main>
-
-      {/* Map Modal */}
-      {showMap && selectedRoute && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl h-[80vh] flex flex-col">
-            <div className="p-4 border-b flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  {selectedRoute.fromLocation} → {selectedRoute.toLocation}
-                </h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  {selectedRoute.distanceKm.toFixed(1)} km • {formatDuration(selectedRoute.durationMinutes)}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowMap(false);
-                  if (mapInstanceRef.current) {
-                    mapInstanceRef.current.remove();
-                    mapInstanceRef.current = null;
-                  }
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div ref={mapRef} className="flex-1 w-full" />
-          </div>
-        </div>
+ return (
+  <div className={`min-h-screen ${
+    theme === 'dark' 
+      ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' 
+      : 'bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50'
+  }`}>
+    {/* Theme Toggle Button */}
+    <button
+      onClick={toggleTheme}
+      className={`fixed top-6 left-6 z-50 p-3 rounded-full backdrop-blur-sm shadow-lg hover:scale-110 transition-all duration-300 ${
+        theme === 'dark' 
+          ? 'bg-gray-800/90 hover:bg-gray-700/90' 
+          : 'bg-white/90 hover:bg-white'
+      }`}
+    >
+      {theme === 'dark' ? (
+        <Sun className="w-6 h-6 text-yellow-500" />
+      ) : (
+        <Moon className="w-6 h-6 text-gray-700" />
       )}
-    </div>
-  );
-}
+    </button>
+    
+    {/* Header */}
+    <header className={`shadow-sm ${
+      theme === 'dark' 
+        ? 'bg-gray-800/50 backdrop-blur-sm border-b border-gray-700' 
+        : 'bg-white'
+    }`}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <button
+          onClick={() => router.push(`/dashboard/trip/${tripId}/overview`)}
+          className={`flex items-center gap-2 transition ${
+            theme === 'dark'
+              ? 'text-gray-300 hover:text-white'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <ArrowLeft className="w-5 h-5" />
+          Back to Overview
+        </button>
+      </div>
+    </header>
+
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6">
+        <h1 className={`text-3xl font-bold mb-2 ${
+          theme === 'dark' ? 'text-white' : 'text-gray-900'
+        }`}>
+          Route Details
+        </h1>
+        <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+          {routesData.totalRoutes} {routesData.totalRoutes === 1 ? 'route' : 'routes'} found for your trip
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {routesData.routes.map((route) => (
+          <RouteCard key={route.id} route={route} />
+        ))}
+      </div>
+    </main>
+
+    {/* Map Modal */}
+    {showMap && selectedRoute && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className={`rounded-xl shadow-xl w-full max-w-6xl h-[80vh] flex flex-col ${
+          theme === 'dark'
+            ? 'bg-gray-800 border border-gray-700'
+            : 'bg-white'
+        }`}>
+          <div className={`p-4 border-b flex items-center justify-between ${
+            theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+          }`}>
+            <div>
+              <h2 className={`text-xl font-bold ${
+                theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>
+                {selectedRoute.fromLocation} → {selectedRoute.toLocation}
+              </h2>
+              <p className={`text-sm mt-1 ${
+                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                {selectedRoute.distanceKm.toFixed(1)} km • {formatDuration(selectedRoute.durationMinutes)}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setShowMap(false);
+                if (mapInstanceRef.current) {
+                  mapInstanceRef.current.remove();
+                  mapInstanceRef.current = null;
+                }
+              }}
+              className={`transition ${
+                theme === 'dark'
+                  ? 'text-gray-500 hover:text-gray-300'
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div ref={mapRef} className="flex-1 w-full" />
+        </div>
+      </div>
+    )}
+  </div>
+);}
