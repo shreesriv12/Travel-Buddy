@@ -172,7 +172,7 @@ export default function TripOverviewPage() {
       title: 'Daily Itinerary',
       icon: List,
       path: `/dashboard/trip/${tripId}/itinerary`,
-      stat: summary ? `${summary.itinerary.daysCount} days` : 'N/A',
+      stat: summary ? `${summary.tripDetails.duration} days` : 'N/A',
       color: 'bg-pink-500'
     },
     {
@@ -350,7 +350,7 @@ export default function TripOverviewPage() {
             <p className={`text-sm mt-1 ${
               theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
             }`}>
-              {summary.itinerary.daysCount} planned days
+              {summary.tripDetails.duration} planned days
             </p>
           </div>
 
