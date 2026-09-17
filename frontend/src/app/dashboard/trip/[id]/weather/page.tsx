@@ -77,11 +77,10 @@ export default function WeatherPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch weather data');
-      }
-
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch weather data');
+      }
       setWeatherData(data);
     } catch (err) {
       console.error('Error fetching weather:', err);
@@ -150,7 +149,7 @@ export default function WeatherPage() {
           <p className="font-semibold text-gray-900 mb-2">{label}</p>
           {payload.map((entry: any, index: number) => (
             <p key={index} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {entry.value}°F
+              {entry.name}: {entry.value}°C
             </p>
           ))}
         </div>
@@ -290,7 +289,7 @@ export default function WeatherPage() {
                 }`}>Avg High</p>
                 <p className={`text-xl font-bold ${
                   theme === 'dark' ? 'text-white' : 'text-gray-900'
-                }`}>{avgHigh}°F</p>
+                }`}>{avgHigh}°C</p>
               </div>
             </div>
           </div>
@@ -498,7 +497,7 @@ export default function WeatherPage() {
                     }`}>High</p>
                     <p className={`text-lg font-semibold ${
                       theme === 'dark' ? 'text-white' : 'text-gray-900'
-                    }`}>{day.temp_high}°F</p>
+                    }`}>{day.temp_high}°C</p>
                   </div>
                 </div>
 
@@ -510,7 +509,7 @@ export default function WeatherPage() {
                     }`}>Low</p>
                     <p className={`text-lg font-semibold ${
                       theme === 'dark' ? 'text-white' : 'text-gray-900'
-                    }`}>{day.temp_low}°F</p>
+                    }`}>{day.temp_low}°C</p>
                   </div>
                 </div>
 

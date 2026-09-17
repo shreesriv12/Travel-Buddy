@@ -155,10 +155,10 @@ export default function NewTripPage() {
                 <Sparkles className="w-8 h-8 text-blue-600" />
               </div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                Plan Your Next Adventure
+                Plan with WEBSTER
               </h1>
               <p className="text-gray-600">
-                Describe your trip in natural language and let AI handle the rest
+                Tell the roundtable your destination and dates. Weather, routes, events, budget, and itinerary specialists will build one shared plan.
               </p>
             </div>
 
@@ -226,7 +226,7 @@ export default function NewTripPage() {
                 Creating Your Trip
               </h1>
               <p className="text-gray-600">
-                Our AI agents are working on your perfect itinerary
+                WEBSTER's travel specialists are building your shared briefing
               </p>
             </div>
 

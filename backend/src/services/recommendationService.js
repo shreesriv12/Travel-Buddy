@@ -1,16 +1,8 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage } from "@langchain/core/messages";
+import { generateGroqText } from "../config/groq.js";
 import prisma from "../config/db.js";
 import { sendRecommendationEmail } from "./emailService.js";
 
-// Initialize Gemini
-const geminiModel = new ChatGoogleGenerativeAI({
-  apiKey: process.env.GOOGLE_API_KEY,
-  model: "gemini-2.0-flash",
-  temperature: 0.7,
-});
-
-// Generate personalized travel recommendations using Gemini
+// Generate personalized travel recommendations using Groq
 export async function generateTravelRecommendations(userId, destination, userEmail) {
   try {
     console.log(`🧠 Generating recommendations for ${userEmail} - ${destination}`);
@@ -59,8 +51,8 @@ GENERATE 3-4 SPECIFIC RECOMMENDATIONS IN THIS EXACT JSON FORMAT:
 
 Make it personal, engaging, and specific to their travel history and current timing.`;
 
-    const response = await geminiModel.invoke([new HumanMessage(prompt)]);
-    const recommendations = parseGeminiResponse(response.content);
+    const response = await generateGroqText("You are a friendly travel expert.", prompt, 0.7);
+    const recommendations = parseGroqResponse(response);
 
     if (recommendations) {
       // Send email with recommendations
@@ -77,7 +69,7 @@ Make it personal, engaging, and specific to their travel history and current tim
 }
 
 // Parse Gemini response
-function parseGeminiResponse(content) {
+function parseGroqResponse(content) {
   try {
     // Try to extract JSON from response
     const jsonMatch = content.match(/\{[\s\S]*\}/);

@@ -166,7 +166,7 @@ export default function Dashboard() {
             <div>
               <h1 className={`text-2xl font-bold ${
                 theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>Travel Planner</h1>
+              }`}>WEBSTER</h1>
               <p className={`text-sm ${
                 theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
               }`}>Welcome back, {user?.name}</p>

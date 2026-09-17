@@ -5,13 +5,18 @@ import tripRoutes from './src/routes/trip.routes.js';
 import itineraryRoutes from './src/routes/itinerary.routes.js';
 import calendarRoutes from './src/routes/calender.routes.js'
 import cronRoutes from './src/routes/cron.routes.js';
-import cors from 'cors';
+import notificationRoutes from './src/routes/notification.routes.js';
 
 const app = express();
 
 // ✅ Define corsOptions ONCE
+const allowedOrigins = ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"];
 const corsOptions = {
-  origin: "http://localhost:3000",
+  origin(origin, callback) {
+    // Browsers send an Origin header; tools such as curl/Postman generally do not.
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: [
     "Content-Type", 
@@ -23,7 +28,18 @@ const corsOptions = {
 };
 
 // ✅ Apply CORS once (this handles preflight automatically)
-app.use(cors(corsOptions));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Google-Access-Token,X-Google-Refresh-Token");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 // ✅ Removed duplicate lines:
 // app.use(cors(corsOptions)); 
@@ -40,6 +56,7 @@ app.use('/api/trips', tripRoutes);
 app.use('/api/itinerary', itineraryRoutes);
 app.use('/api/calendar', calendarRoutes); 
 app.use('/api/cron', cronRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 
 // Error handling middleware

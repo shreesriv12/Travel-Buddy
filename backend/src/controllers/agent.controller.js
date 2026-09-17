@@ -1,4 +1,5 @@
 import { createTripAndRunOrchestrator } from "../agents/tripAgent.js";
+import { enqueueAlert } from "../services/queueService.js";
 
 export async function runTripAgents(req, res) {
   // Get userId from authenticated user (set by middleware)
@@ -17,6 +18,14 @@ export async function runTripAgents(req, res) {
     const tripWithOrchestrator = await createTripAndRunOrchestrator({ 
       userId, 
       prompt 
+    });
+
+    await enqueueAlert({
+      userId,
+      tripId: tripWithOrchestrator.tripId,
+      type: "trip_ready",
+      title: "Your trip plan is ready",
+      message: `${tripWithOrchestrator.destination} planning completed. Open the trip to view the roundtable results.`,
     });
 
     res.json(tripWithOrchestrator);

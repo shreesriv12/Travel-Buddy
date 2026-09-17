@@ -29,6 +29,8 @@ const CITY_TO_AIRPORT = {
   'pune': 'PNQ',
   'ahmedabad': 'AMD',
   'jaipur': 'JAI',
+  'goa': 'GOI',
+  'panaji': 'GOI',
   'lucknow': 'LKO',
   'india': 'DEL',
   
@@ -87,21 +89,21 @@ async function flightExecute(args) {
         api_key: process.env.SERPAPI_KEY,
     };
     
-    console.log("[FlightAgent] Sending request to SerpApi with params:", requestParams);
-    
-    const response = await new Promise((resolve, reject) => {
-      getJson(requestParams, (result) => {
-        if (!result) {
-          reject(new Error("No response from SerpApi"));
-          return;
-        }
-        if (result.error) {
-          reject(new Error(result.error));
-          return;
-        }
-        resolve(result);
-      });
+    // Never log requestParams directly: it contains the private SerpApi key.
+    console.log("[FlightAgent] Querying SerpApi:", {
+      engine: requestParams.engine,
+      departure_id: requestParams.departure_id,
+      arrival_id: requestParams.arrival_id,
+      outbound_date: requestParams.outbound_date,
+      return_date: requestParams.return_date,
+      adults: requestParams.adults,
+      children: requestParams.children,
+      currency: requestParams.currency,
+      hasApiKey: Boolean(requestParams.api_key),
     });
+    const response = await getJson(requestParams);
+    if (!response) throw new Error("No response from SerpApi");
+    if (response.error) throw new Error(response.error);
 
     console.log(`[FlightAgent] Received successful response from SerpApi.`);
     
@@ -171,14 +173,15 @@ async function flightExecute(args) {
     return result;
 
   } catch (err) {
-    console.error("FlightAgent Error:", err.message);
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("FlightAgent Error:", reason);
 
     const errorResult = {
-      summary: `Flight search failed. Original error: ${err.message}`,
+      summary: `Live flight search failed. Original error: ${reason}`,
       bestFlights: [],
       otherFlights: [],
       searchParams: { origin, destination, departureDate, returnDate, adults, children, currency },
-      error: err.message
+      error: reason
     };
     
     if (tripId) {

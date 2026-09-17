@@ -20,6 +20,7 @@ model User {
   notifications    Notification[]
   trips            Trip[]
   trip_comparisons TripComparison[]
+  feedback         UserFeedback[]
 }
 
 model Trip {
@@ -41,6 +42,7 @@ model Trip {
   hotels_data     Json?            @default("null")      // JSON data for hotels
   trains_data       Json?          @default("null")
   news_data       Json?            @default("null")      // JSON data for news/articles
+  reviews_data    Json?            @default("null")
    
   created_at           DateTime         @default(now())
   updated_at           DateTime         @updatedAt
@@ -53,6 +55,7 @@ model Trip {
   budget_items         BudgetItem[]
   agent_tasks          AgentTask[]
   notifications        Notification[]
+  feedback             UserFeedback[]
 
   user                 User             @relation(fields: [user_id], references: [id])
 }
@@ -183,6 +186,22 @@ model Notification {
 
   trip Trip? @relation(fields: [trip_id], references: [id])
   user User  @relation(fields: [user_id], references: [id])
+}
+
+model UserFeedback {
+  id         String   @id @default(uuid())
+  user_id    String
+  trip_id    String
+  rating     Int
+  liked_tags Json     @default("[]")
+  notes      String?
+  created_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id])
+  trip Trip @relation(fields: [trip_id], references: [id])
+
+  @@index([user_id, created_at])
+  @@index([trip_id])
 }
 
 

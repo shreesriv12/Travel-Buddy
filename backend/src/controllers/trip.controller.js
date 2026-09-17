@@ -81,6 +81,9 @@ export const getTripSummary = async (req, res) => {
           orderBy: { start_datetime: 'asc' }
         },
         routes: true,
+        agent_tasks: {
+          orderBy: { started_at: 'asc' },
+        },
       },
     });
 
@@ -115,6 +118,8 @@ export const getTripSummary = async (req, res) => {
       budget: {
         total: Math.round(totalBudget),
         itemsCount: trip.budget_items.length,
+        currency: trip.summary?.currency || "INR",
+        requestedTotal: trip.total_budget,
       },
       weather: trip.weather_data.length > 0 ? {
         avgTemp: Math.round(avgTemp),
@@ -132,6 +137,23 @@ export const getTripSummary = async (req, res) => {
       routes: {
         count: trip.routes.length,
       },
+      // The roundtable is deliberately visible: travelers can see which
+      // specialist supplied each part of their plan and whether it succeeded.
+      agentExecution: trip.agent_tasks.map(task => {
+        const result = task.result_data && typeof task.result_data === 'object' && !Array.isArray(task.result_data)
+          ? task.result_data
+          : {};
+        return {
+          name: task.agent_type,
+          status: task.status,
+          summary: typeof result.summary === 'string'
+            ? result.summary
+            : typeof result.resultSummary === 'string'
+              ? result.resultSummary
+              : null,
+          error: task.error_message || null,
+        };
+      }),
       hasFlights: !!trip.flights_data,
       hasHotels: !!trip.hotels_data,
       hasNews: !!trip.news_data,
@@ -193,8 +215,8 @@ export const getWeatherData = async (req, res) => {
 
     if (weatherData.length === 0) {
       return res.status(404).json({ 
-        error: 'No weather data found for this trip',
-        message: 'Run the weather agent first to fetch weather data'
+        error: 'A live forecast is not available for these dates yet',
+        message: 'Open-Meteo provides daily forecasts only for the next 16 days. Choose travel dates in that window and create the trip again.'
       });
     }
 
@@ -575,13 +597,6 @@ export const getEvents = async (req, res) => {
       orderBy: { start_datetime: 'asc' },
     });
 
-    if (events.length === 0) {
-      return res.status(404).json({ 
-        error: 'No events found for this trip',
-        message: 'Run the events agent first to fetch events'
-      });
-    }
-
     res.json({ 
       tripId: id, 
       totalEvents: events.length,
@@ -876,5 +891,17 @@ export const getOrchestratorSummary = async (req, res) => {
   } catch (error) {
     console.error('Error fetching orchestrator summary:', error);
     res.status(500).json({ error: 'Failed to fetch orchestrator summary' });
+  }
+};
+
+export const getReviews = async (req, res) => {
+  try {
+    const trip = await prisma.trip.findFirst({ where: { id: req.params.id, user_id: req.user.userId }, select: { reviews_data: true, destination: true } });
+    if (!trip) return res.status(404).json({ error: 'Trip not found' });
+    if (!trip.reviews_data) return res.status(404).json({ error: 'No reviews found', message: 'Run the reviews agent first' });
+    res.json(trip.reviews_data);
+  } catch (error) {
+    console.error('Error fetching reviews:', error);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
   }
 };

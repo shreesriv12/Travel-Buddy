@@ -21,27 +21,16 @@ async function newsExecute(args) {
   try {
     console.log(`[NewsAgent] Searching news for: ${destination}`);
 
-    const response = await new Promise((resolve, reject) => {
-      getJson({
+    if (!process.env.SERPAPI_KEY) throw new Error("SERPAPI_KEY is not configured");
+    const response = await getJson({
         engine: "google_news",
         q: `${destination} travel tourism attractions`,
         tbs: `qdr:${timeRange}`,
         num: maxResults,
         api_key: process.env.SERPAPI_KEY,
-      }, (result) => {
-        if (!result) {
-          reject(new Error("No response from SerpApi"));
-          return;
-        }
-
-        if (result.error) {
-          reject(new Error(result.error));
-          return;
-        }
-
-        resolve(result);
       });
-    });
+    if (!response) throw new Error("No response from SerpApi");
+    if (response.error) throw new Error(response.error);
 
     // Process news results
     const newsArticles = response.news_results?.map((article, index) => ({
@@ -57,22 +46,8 @@ async function newsExecute(args) {
 
     console.log(`[NewsAgent] Found ${newsArticles.length} news articles`);
 
-    // If no news found, return fallback data
-    if (newsArticles.length === 0) {
-      newsArticles.push({
-        id: 'fallback_1',
-        title: `Travel Guide: ${destination}`,
-        snippet: `Discover the best attractions and activities in ${destination}. Plan your perfect trip with local insights and travel tips.`,
-        source: 'Travel News',
-        date: new Date().toISOString().split('T')[0],
-        link: null,
-        thumbnail: null,
-        position: 1
-      });
-    }
-
     const result = {
-      summary: `Found ${newsArticles.length} news articles about ${destination} from the past ${timeRange}.`,
+      summary: newsArticles.length ? `Found ${newsArticles.length} live news articles about ${destination}.` : `No live news articles were returned for ${destination}.`,
       destination: destination,
       totalArticles: newsArticles.length,
       timeRange: timeRange,
@@ -92,33 +67,20 @@ async function newsExecute(args) {
     return result;
 
   } catch (err) {
-    console.error("NewsAgent Error:", err.message);
-
-    // Return fallback news data
-    const fallbackArticles = [
-      {
-        id: 'fallback_1',
-        title: `Travel Information: ${destination}`,
-        snippet: `Explore ${destination} with our comprehensive travel guide. Find the best places to visit, local cuisine, and cultural experiences.`,
-        source: 'Travel Guide',
-        date: new Date().toISOString().split('T')[0],
-        link: null,
-        thumbnail: null,
-        position: 1
-      }
-    ];
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("NewsAgent Error:", reason);
 
     const errorResult = {
-      summary: `Using fallback news data for ${destination}. Original error: ${err.message}`,
+      summary: `Live news search is unavailable: ${reason}`,
       destination: destination,
-      totalArticles: fallbackArticles.length,
+      totalArticles: 0,
       timeRange: timeRange,
-      articles: fallbackArticles,
+      articles: [],
       searchQuery: `${destination} travel`,
-      error: err.message
+      error: reason
     };
 
-    // Store the fallback data in the database if an error occurs
+    // Persist the provider failure, never placeholder articles.
     if (tripId) {
       await prisma.trip.update({
         where: { id: tripId },

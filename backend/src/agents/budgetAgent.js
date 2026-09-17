@@ -13,7 +13,7 @@ const BudgetArgs = z.object({
 // --------------------
 function safeNumber(value, defaultValue = 0) {
   if (value === null || value === undefined) return defaultValue;
-  const num = parseFloat(value);
+  const num = parseFloat(String(value).replace(/[^0-9.-]/g, ""));
   return isNaN(num) ? defaultValue : num;
 }
 
@@ -29,14 +29,14 @@ function extractActualPrices(trip) {
     const flightsData = trip.flights_data;
     
     // Try to get price from best_flights
-    if (flightsData.best_flights && flightsData.best_flights.length > 0) {
-      const bestFlight = flightsData.best_flights[0];
+    if (flightsData.bestFlights && flightsData.bestFlights.length > 0) {
+      const bestFlight = flightsData.bestFlights[0];
       flightCost = safeNumber(bestFlight.price, 0);
     }
     
     // If no best flights, try other_flights
-    if (flightCost === 0 && flightsData.other_flights && flightsData.other_flights.length > 0) {
-      const otherFlight = flightsData.other_flights[0];
+    if (flightCost === 0 && flightsData.otherFlights && flightsData.otherFlights.length > 0) {
+      const otherFlight = flightsData.otherFlights[0];
       flightCost = safeNumber(otherFlight.price, 0);
     }
     
@@ -85,14 +85,13 @@ function calculateBudget(trip) {
   // Extract actual prices from flight and hotel data
   const { flightCost, hotelCost } = extractActualPrices(trip);
 
-  // Use actual prices if available, otherwise use estimates
-  const finalFlightCost = flightCost > 0 ? flightCost : (500 * adults);
-  const finalHotelCost = hotelCost > 0 ? hotelCost : (100 * tripDuration);
-  
-  // Calculate other expenses based on actual data when available
-  const estimatedFood = tripDuration * totalTravelers * (hotelCost > 0 ? 40 : 50);
-  const estimatedLocal = tripDuration * (hotelCost > 0 ? 25 : 30);
-  const miscellaneous = Math.round((finalFlightCost + finalHotelCost) * 0.1);
+  // A budget must not silently invent fares. Flight prices from Google Flights
+  // are per traveller; hotel prices are for the selected room/stay.
+  const finalFlightCost = flightCost > 0 ? flightCost * totalTravelers : 0;
+  const finalHotelCost = hotelCost > 0 ? hotelCost : 0;
+  const estimatedFood = 0;
+  const estimatedLocal = 0;
+  const miscellaneous = 0;
 
   const totalEstimate = Math.round(
     finalFlightCost + finalHotelCost + estimatedFood + estimatedLocal + miscellaneous
@@ -108,11 +107,11 @@ function calculateBudget(trip) {
     },
     total: totalEstimate,
     perPerson: Math.round(totalEstimate / adults),
-    currency: "USD",
+    currency: trip.flights_data?.searchParams?.currency || trip.hotels_data?.currency || trip.summary?.currency || "INR",
     dataSources: {
       flights: flightCost > 0 ? "real" : "estimated",
       hotels: hotelCost > 0 ? "real" : "estimated",
-      others: "estimated"
+      others: "not quoted"
     }
   };
 }
@@ -147,7 +146,7 @@ async function budgetExecute(args) {
     item_name: category.charAt(0).toUpperCase() + category.slice(1),
     estimated_amount: amount,
     actual_amount: 0,
-    status: budget.dataSources[category] === "real" ? "Based on Real Data" : "Estimated",
+    status: (category === "flights" ? budget.dataSources.flights : category === "accommodation" ? budget.dataSources.hotels : budget.dataSources.others) === "real" ? "Based on Real Data" : "Not quoted by a live provider",
   }));
 
   await prisma.budgetItem.createMany({ data: budgetItemsData });
@@ -170,6 +169,7 @@ async function budgetExecute(args) {
     where: { id: tripId },
     data: {
       summary: {
+        ...(trip.summary && typeof trip.summary === "object" ? trip.summary : {}),
         totalBudget: budget.total,
         perPerson: budget.perPerson,
         breakdown: budget.breakdown,
@@ -177,7 +177,8 @@ async function budgetExecute(args) {
         dataSources: budget.dataSources,
         lastUpdated: new Date().toISOString()
       },
-      total_budget: budget.total,
+      // Preserve the traveller's stated budget cap. This field is not an
+      // automatically generated estimate.
     },
   });
 

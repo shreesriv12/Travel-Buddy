@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import prisma from "../config/db.js";
+import { generateGroqText } from "../config/groq.js";
 
 // --------------------
 // Argument schema
@@ -15,19 +15,12 @@ const TrainArgs = z.object({
 });
 
 // --------------------
-// Initialize Gemini AI
-// --------------------
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-
-// --------------------
-// Generate train options using Gemini
+// Generate train options using Groq
 // --------------------
 async function generateTrainOptions(origin, destination, departureDate, adults, currency) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
   const prompt = `You are a train travel assistant. Provide realistic train options from ${origin} to ${destination} on ${departureDate} for ${adults} adult(s).
 
-Return a JSON array of train options with the following structure for each train:
+Return a JSON object with a "trains" array. Each train has this structure:
 {
   "trainName": "Name of the train service",
   "trainNumber": "Train identification number",
@@ -51,20 +44,15 @@ Provide 4-6 realistic train options with varying prices, classes, and timings. C
 - Common train classes and types
 - Typical departure times (morning, afternoon, evening, night)
 
-Return ONLY the JSON array, no additional text.`;
+Return ONLY the JSON object, no additional text.`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const text = await generateGroqText("You provide accurate, structured train travel options.", prompt, 0.2, true);
     
     // Extract JSON from the response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      throw new Error("No valid JSON array found in response");
-    }
-    
-    const trains = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(text);
+    const trains = parsed.trains;
+    if (!Array.isArray(trains)) throw new Error("Groq response did not include a trains array");
     
     // Add IDs and normalize data
     return trains.map((train, index) => ({
@@ -81,45 +69,12 @@ Return ONLY the JSON array, no additional text.`;
       stops: train.stops || [],
       serviceProvider: train.serviceProvider,
       type: train.type,
-      generatedBy: "Google Gemini AI"
+      generatedBy: "Groq AI"
     }));
   } catch (error) {
-    console.error("[TrainAgent] Gemini API Error:", error.message);
+    console.error("[TrainAgent] LLM response error:", error.message);
     throw error;
   }
-}
-
-// --------------------
-// Generate fallback train data
-// --------------------
-function generateFallbackTrainData(origin, destination, date, currency) {
-  const trainTypes = [
-    { name: "Rajdhani Express", class: "First AC", basePrice: 2500, speed: "Superfast" },
-    { name: "Shatabdi Express", class: "Chair Car", basePrice: 1200, speed: "Fast" },
-    { name: "Duronto Express", class: "Sleeper", basePrice: 800, speed: "Express" },
-    { name: "Mail Express", class: "Second Sitting", basePrice: 400, speed: "Mail" }
-  ];
-
-  return trainTypes.map((train, index) => ({
-    id: `fallback_train_${index + 1}`,
-    trainName: train.name,
-    trainNumber: `TR${2000 + index}`,
-    departureTime: `${8 + index * 3}:00`,
-    arrivalTime: `${14 + index * 3}:00`,
-    duration: `${6 + index} hours`,
-    price: train.basePrice,
-    currency: currency,
-    class: train.class,
-    bookingLink: null,
-    stops: [
-      { station: `${origin} Central`, time: `${8 + index * 3}:00` },
-      { station: "Intermediate Station", time: `${10 + index * 3}:00` },
-      { station: `${destination} Junction`, time: `${14 + index * 3}:00` }
-    ],
-    serviceProvider: "Indian Railways",
-    type: train.speed,
-    fallback: true
-  }));
 }
 
 // --------------------
@@ -132,8 +87,7 @@ async function trainExecute(args) {
   console.log(`[TrainAgent] From ${origin} to ${destination} on ${departureDate}`);
 
   try {
-    // Generate train options using Gemini AI
-    console.log("[TrainAgent] Requesting train options from Google Gemini AI");
+    console.log("[TrainAgent] Requesting structured train options from the configured LLM");
     
     const trains = await generateTrainOptions(origin, destination, departureDate, adults, currency);
 
@@ -149,7 +103,7 @@ async function trainExecute(args) {
         adults,
         currency,
       },
-      dataSource: "Google Gemini AI"
+      dataSource: "Groq AI"
     };
 
     // Store in DB
@@ -166,12 +120,9 @@ async function trainExecute(args) {
   } catch (err) {
     console.error("[TrainAgent] Error:", err.message);
     
-    // Generate fallback data
-    const fallbackTrains = generateFallbackTrainData(origin, destination, departureDate, currency);
-    
     const errorResult = {
-      summary: `Using simulated train data for ${origin} to ${destination}. Original error: ${err.message}`,
-      trains: fallbackTrains,
+      summary: `Live train results are unavailable: ${err.message}`,
+      trains: [],
       searchParams: { 
         origin, 
         destination, 
@@ -180,7 +131,7 @@ async function trainExecute(args) {
         currency 
       },
       error: err.message,
-      fallback: true
+      unavailable: true
     };
 
     if (tripId) {
@@ -199,7 +150,7 @@ async function trainExecute(args) {
 // --------------------
 export const trainAgent = {
   name: "trainAgent",
-  description: "Fetches train options between cities using Google Gemini AI.",
+  description: "Fetches train options between cities using Groq AI.",
   jsonSchema: {
     type: "object",
     properties: {

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import prisma from "../config/db.js";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage } from "@langchain/core/messages";
+import { generateGroqText } from "../config/groq.js";
 import { sendTripItineraryEmail } from "../utils/emailUtils.js";
 import PDFDocument from "pdfkit";
 
@@ -16,6 +15,7 @@ const ItineraryArgs = z.object({
   adults: z.number().optional().default(1),
   children: z.number().optional().default(0),
   budgetResult: z.any().optional(),
+  eventsResult: z.any().optional(),
 });
 
 // --------------------
@@ -38,27 +38,18 @@ function extractJson(text) {
 // --------------------
 // Fetch POIs
 // --------------------
-async function fetchBestPlaces({ destination, days, startDate }) {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY is not set");
-
-  const model = new ChatGoogleGenerativeAI({
-    apiKey,
-    model: "gemini-2.0-flash",
-    temperature: 0.2,
-  });
-
+async function fetchBestPlaces({ destination, days, startDate, preferences = [] }) {
   const prompt = [
     "Return ONLY valid JSON array. Do not include markdown or code fences.",
     `Generate ${days} days worth of POIs for ${destination} starting ${startDate || "soon"}.`,
+    preferences.length ? `Favor these travel preferences learned from the user's prior feedback: ${preferences.join(", ")}.` : "",
     "Each object MUST include: name, area, category, suggested_time_hrs, description",
     "Categories can be: landmark, museum, park, restaurant, shopping, entertainment, cultural, nature",
     "Example format:",
     `[{"name": "Eiffel Tower", "area": "Champ de Mars", "category": "landmark", "suggested_time_hrs": 2, "description": "Iconic iron tower"}]`
   ].join("\n");
 
-  const res = await model.invoke([new HumanMessage(prompt)]);
-  const text = res?.content || "";
+  const text = await generateGroqText("You are a precise travel itinerary planner.", prompt, 0.2);
 
   const Poi = z.object({
     name: z.string(),
@@ -183,7 +174,7 @@ async function sendItineraryNotification(tripId, userEmail) {
   try {
     console.log(`[ItineraryAgent] Attempting to send email to: ${userEmail}`);
     
-    if (userEmail && process.env.EMAIL_USER) {
+    if (userEmail && (process.env.SMTP_HOST || process.env.EMAIL_USER)) {
       await sendTripItineraryEmail(tripId, userEmail);
       console.log(`✅ Itinerary email sent to ${userEmail}`);
       return true;
@@ -213,6 +204,14 @@ export async function itineraryExecute(rawArgs) {
   
   if (!trip) throw new Error(`Trip ${args.tripId} not found`);
 
+  // Feedback is a lightweight continuous-learning signal: future trip plans
+  // favor categories the traveler explicitly enjoyed on earlier trips.
+  const previousFeedback = await prisma.userFeedback.findMany({
+    where: { user_id: trip.user_id, trip_id: { not: trip.id }, rating: { gte: 4 } },
+    select: { liked_tags: true }, orderBy: { created_at: "desc" }, take: 20,
+  });
+  const learnedPreferences = [...new Set(previousFeedback.flatMap((entry) => Array.isArray(entry.liked_tags) ? entry.liked_tags : []))].slice(0, 10);
+
   const totalBudget = args.budgetResult?.budget?.total ?? trip.total_budget ?? 1000;
   const dailyBudget = Math.round(totalBudget / args.days);
   const userEmail = trip.user?.email;
@@ -226,13 +225,21 @@ export async function itineraryExecute(rawArgs) {
     orderBy: { date: "asc" },
   });
 
+  // Recommended events become itinerary context, rather than remaining a
+  // separate discovery result that the traveler must manually reconcile.
+  const eventData = await prisma.event.findMany({
+    where: { trip_id: args.tripId, is_recommended: true },
+    orderBy: { start_datetime: "asc" },
+  });
+
   // Fetch POIs
   let pois = [];
   try { 
     pois = await fetchBestPlaces({ 
       destination: trip.destination, 
       days: args.days, 
-      startDate: args.startDate 
+      startDate: args.startDate,
+      preferences: learnedPreferences,
     }); 
   } catch(e) { 
     console.error("POI fetch failed:", e.message); 
@@ -254,7 +261,16 @@ export async function itineraryExecute(rawArgs) {
     const dateStr = formatDate(dayDate);
 
     const dayWeather = weatherData.find(w => formatDate(w.date) === dateStr) || {};
-    const dayPois = dailyBuckets[i] || [];
+    const scheduledEvents = eventData
+      .filter(event => formatDate(event.start_datetime) === dateStr)
+      .map(event => ({
+        name: event.title,
+        area: event.location || trip.destination,
+        category: "local event",
+        suggested_time_hrs: 2,
+        description: event.description || "Recommended local event",
+      }));
+    const dayPois = [...scheduledEvents, ...(dailyBuckets[i] || [])];
 
     const dayPlan = {
       day: i + 1,
@@ -295,10 +311,16 @@ export async function itineraryExecute(rawArgs) {
     });
   }
 
-  // Store full plan in Itinerary table
-  await prisma.itinerary.create({
-    data: {
+  // Keep a single canonical full plan per trip so a re-run refreshes it.
+  await prisma.itinerary.upsert({
+    where: { trip_id: trip.id },
+    create: {
       trip_id: trip.id,
+      tool: "itineraryAgent",
+      result_summary: `Generated ${args.days}-day itinerary for ${trip.destination}`,
+      full_plan: plan,
+    },
+    update: {
       tool: "itineraryAgent",
       result_summary: `Generated ${args.days}-day itinerary for ${trip.destination}`,
       full_plan: plan,

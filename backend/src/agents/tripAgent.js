@@ -1,14 +1,8 @@
+import "dotenv/config";
 import prisma from "../config/db.js";
 import fetch from "node-fetch";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage } from "@langchain/core/messages";
+import { generateGroqText } from "../config/groq.js";
 import { runMCPOrchestrator } from "./orchestrator.js";
-
-const gemini = new ChatGoogleGenerativeAI({
-  apiKey: process.env.GOOGLE_API_KEY,
-  temperature: 0,
-  model: "gemini-2.0-flash",
-});
 
 // --------------------
 // Fetch coordinates from Geoapify
@@ -38,9 +32,9 @@ async function getCoordinatesGeoapify(location) {
 }
 
 // --------------------
-// Parse user prompt using Gemini
+// Parse user prompt using Groq
 // --------------------
-async function parsePromptWithGemini(prompt) {
+async function parsePromptWithGroq(prompt) {
   const systemPrompt = `
 You are a travel assistant. Parse the user prompt into JSON with these fields:
 {
@@ -51,6 +45,7 @@ You are a travel assistant. Parse the user prompt into JSON with these fields:
   "end_date": "YYYY-MM-DD",
   "adults": number,
   "total_budget": number,
+  "currency": "ISO 4217 code, such as INR or USD",
   "status": string
 }
 
@@ -61,24 +56,15 @@ Rules:
 - Use reasonable defaults if any field is missing.
 `;
 
-  const response = await gemini.call([
-    new HumanMessage({ content: systemPrompt + "\n\nUser prompt: " + prompt }),
-  ]);
-
-  const text =
-    typeof response?.content === "string"
-      ? response.content
-      : response?.content?.[0]?.text || "";
-
-  if (!text) throw new Error("Gemini returned empty response");
+  const text = await generateGroqText(systemPrompt, prompt, 0);
 
   const cleaned = text.replace(/```json|```/gi, "").trim();
 
   try {
     return JSON.parse(cleaned);
   } catch (err) {
-    console.error("Gemini raw response:", cleaned);
-    throw new Error("Failed to parse Gemini response as JSON");
+    console.error("Groq raw response:", cleaned);
+    throw new Error("Failed to parse Groq response as JSON");
   }
 }
 
@@ -87,7 +73,7 @@ Rules:
 // --------------------
 export async function createTripAndRunOrchestrator({ userId, prompt }) {
   // 1️⃣ Parse prompt
-  const tripDataRaw = await parsePromptWithGemini(prompt);
+  const tripDataRaw = await parsePromptWithGroq(prompt);
 
   // 2️⃣ Normalize city names
   const normalizeLocation = (name) => {
@@ -104,6 +90,7 @@ export async function createTripAndRunOrchestrator({ userId, prompt }) {
     end_date: tripDataRaw.end_date || new Date().toISOString().split("T")[0],
     adults: typeof tripDataRaw.adults === "number" ? tripDataRaw.adults : 1,
     total_budget: typeof tripDataRaw.total_budget === "number" ? tripDataRaw.total_budget : 0,
+    currency: tripDataRaw.currency || "INR",
     status: tripDataRaw.status || "planned",
   };
 
@@ -155,7 +142,10 @@ export async function createTripAndRunOrchestrator({ userId, prompt }) {
     adults: trip.adults,
     total_budget: trip.total_budget,
     status: orchestratorResult.status,
-    orchestratorSummary: orchestratorResult.answer,
+    // `answer` is not part of the orchestrator contract. Return the briefing
+    // and execution metadata so the dashboard can explain what every agent did.
+    orchestratorSummary: orchestratorResult.aiInsights,
+    executionMetadata: orchestratorResult.executionMetadata,
     toolResults: orchestratorResult.toolResults,
   };
 }

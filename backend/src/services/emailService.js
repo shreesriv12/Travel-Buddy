@@ -3,16 +3,34 @@ import nodemailer from 'nodemailer';
 
 // Create transporter
 const createTransporter = () => {
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+
   console.log('[EmailService] Creating transporter with:', {
-    user: process.env.EMAIL_USER,
-    hasPass: !!process.env.EMAIL_PASS
+    host: host || 'Gmail service',
+    port: host ? port : undefined,
+    user,
+    hasPass: !!pass
   });
-  
+
+  // SMTP settings take precedence. The Gmail fallback preserves existing
+  // development configuration for accounts that support App Passwords.
+  if (host) {
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure: process.env.SMTP_SECURE === 'true' || port === 465,
+      auth: { user, pass },
+    });
+  }
+
   return nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS, // Use App Password for Gmail
+      user,
+      pass,
     },
   });
 };
@@ -171,14 +189,15 @@ export const sendItineraryEmail = async (userEmail, trip, itineraryData, budgetD
   try {
     console.log(`[EmailService] Attempting to send email to: ${userEmail}`);
     
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      throw new Error('Email credentials not configured. Please set EMAIL_USER and EMAIL_PASS environment variables.');
+    if (!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) &&
+        !(process.env.EMAIL_USER && process.env.EMAIL_PASS)) {
+      throw new Error('Email credentials not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS (or Gmail EMAIL_USER and EMAIL_PASS).');
     }
 
     const transporter = createTransporter();
     
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_FROM || process.env.SMTP_USER || process.env.EMAIL_USER,
       to: userEmail,
       subject: `✈️ Your Travel Itinerary for ${trip.destination}`,
       html: generateItineraryHTML(trip, itineraryData, budgetData, weatherData),
@@ -200,14 +219,15 @@ export const sendRecommendationEmail = async (userEmail, destination, recommenda
   try {
     console.log(`[EmailService] Attempting to send recommendation email to: ${userEmail}`);
     
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      throw new Error('Email credentials not configured. Please set EMAIL_USER and EMAIL_PASS environment variables.');
+    if (!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) &&
+        !(process.env.EMAIL_USER && process.env.EMAIL_PASS)) {
+      throw new Error('Email credentials not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS (or Gmail EMAIL_USER and EMAIL_PASS).');
     }
 
     const transporter = createTransporter();
     
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_FROM || process.env.SMTP_USER || process.env.EMAIL_USER,
       to: userEmail,
       subject: `✨ Travel Inspiration: New Places to Explore in ${destination}`,
       html: generateRecommendationHTML(destination, recommendations),
@@ -234,7 +254,7 @@ export const sendNotificationEmail = async (userEmail, subject, message) => {
     const transporter = createTransporter();
     
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_FROM || process.env.SMTP_USER || process.env.EMAIL_USER,
       to: userEmail,
       subject: subject,
       text: message,
@@ -267,7 +287,8 @@ export const testEmailConnection = async () => {
   try {
     console.log('[EmailService] Testing email connection...');
     
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    if (!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) &&
+        !(process.env.EMAIL_USER && process.env.EMAIL_PASS)) {
       throw new Error('Email credentials not configured');
     }
 
@@ -279,7 +300,7 @@ export const testEmailConnection = async () => {
     
     // Send test email
     const testResult = await sendNotificationEmail(
-      process.env.EMAIL_USER, // Send to yourself
+      process.env.EMAIL_FROM || process.env.SMTP_USER || process.env.EMAIL_USER,
       '📧 Travel Buddy - Email Test',
       'This is a test email to verify your email configuration is working correctly.\n\nIf you received this, your email setup is successful!'
     );

@@ -1,5 +1,5 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import "dotenv/config";
+import { generateGroqText } from "../config/groq.js";
 import { weatherAgent } from "./weatherAgent.js";
 import { budgetAgent } from "./budgetAgent.js";
 import { eventsAgent } from "./eventsAgent.js";
@@ -7,9 +7,11 @@ import { itineraryAgent } from "./itineraryAgent.js";
 import { mapsAgent } from "./mapsAgent.js";
 import { flightAgent } from "./flightAgent.js";
 import { newsAgent } from "./newsAgent.js";
+import { reviewsAgent } from "./reviewsAgent.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import { trainAgent } from "./trainAgent.js";
 import prisma from "../config/db.js";
+import { createTravelMcpClient } from "../mcp/travelMcpClient.js";
 
 // --------------------
 // System Prompt for AI Orchestrator
@@ -171,19 +173,13 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     console.error("[Orchestrator] ⚠️ Cleanup failed:", cleanupError.message);
   }
 
-  // Initialize AI Model with System Prompt
-  const model = new ChatGoogleGenerativeAI({
-    model: "gemini-1.5-pro",
-    temperature: 0.3,
-    maxRetries: 2,
-  });
-
   const previousToolResults = [];
   const collectedData = {
     flights: null,
     trains: null,
     hotels: null,
     news: null,
+    reviews: null,
     weather: null,
     events: null,
     itinerary: null,
@@ -192,7 +188,8 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   };
 
   let successfulTools = 0;
-  const totalTools = 9; // Updated to 9 tools
+  const totalTools = 10;
+  const mcp = await createTravelMcpClient();
 
   try {
     console.log("[Orchestrator] Starting sequential tool execution...");
@@ -224,7 +221,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         startDate: trip.start_date?.toISOString().split("T")[0],
         endDate: trip.end_date?.toISOString().split("T")[0],
       };
-      const result = await weatherAgent.execute(taskData);
+      const result = await mcp.call(weatherAgent.name, taskData);
       await storeWeatherData(trip.id, result);
       await createAgentTask(weatherAgent.name, taskData, "SUCCESS", result);
       collectedData.weather = result;
@@ -269,9 +266,10 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         departureDate: trip.start_date?.toISOString().split("T")[0],
         returnDate: trip.end_date?.toISOString().split("T")[0],
         adults: trip.adults || 1,
+        currency: trip.summary?.currency || "INR",
         tripId: trip.id,
       };
-      const result = await flightAgent.execute(taskData);
+      const result = await mcp.call(flightAgent.name, taskData);
       await storeFlightData(trip.id, result);
       
       // ✅ Store in Trip.flights_data instead of Route table
@@ -326,7 +324,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         adults: trip.adults || 1,
         tripId: trip.id,
       };
-      const result = await trainAgent.execute(taskData);
+      const result = await mcp.call(trainAgent.name, taskData);
       await storeTrainData(trip.id, result);
       
       // ✅ Store in Trip.trains_data instead of Route table
@@ -380,11 +378,11 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         adults: trip.adults || 1,
         children: trip.children || 0,
         rooms: 1,
-        currency: "USD",
+        currency: trip.summary?.currency || "INR",
         sortBy: "relevance",
         tripId: trip.id,
       };
-      const result = await hotelsAgent.execute(taskData);
+      const result = await mcp.call(hotelsAgent.name, taskData);
       await prisma.trip.update({
         where: { id: trip.id },
         data: { hotels_data: result },
@@ -410,7 +408,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
           adults: trip.adults || 1,
           children: trip.children || 0,
           rooms: 1,
-          currency: "USD",
+          currency: trip.summary?.currency || "INR",
           sortBy: "relevance",
           tripId: trip.id,
         },
@@ -437,7 +435,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         maxResults: 10,
         timeRange: "1m",
       };
-      const result = await newsAgent.execute(taskData);
+      const result = await mcp.call(newsAgent.name, taskData);
       await prisma.trip.update({
         where: { id: trip.id },
         data: { news_data: result },
@@ -477,10 +475,23 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     // ============================================
     // 6️⃣ BUDGET AGENT
     // ============================================
+    console.log("[Orchestrator] Executing reviewsAgent...");
+    try {
+      const taskData = { tripId: trip.id, destination: trip.destination, maxPlaces: 3 };
+      const result = await mcp.call(reviewsAgent.name, taskData);
+      await createAgentTask(reviewsAgent.name, taskData, "SUCCESS", result);
+      collectedData.reviews = result;
+      previousToolResults.push({ tool: reviewsAgent.name, status: "SUCCESS", resultSummary: result.summary, result });
+      successfulTools++;
+    } catch (error) {
+      await createAgentTask(reviewsAgent.name, { tripId: trip.id, destination: trip.destination, maxPlaces: 3 }, "FAILED", null, error);
+      previousToolResults.push({ tool: reviewsAgent.name, status: "FAILED", resultSummary: "Reviews search failed", error: error.message });
+    }
+
     console.log("[Orchestrator] Executing budgetAgent...");
     try {
       const taskData = { tripId: trip.id };
-      const result = await budgetAgent.execute(taskData);
+      const result = await mcp.call(budgetAgent.name, taskData);
       await createAgentTask(budgetAgent.name, taskData, "SUCCESS", result);
       collectedData.budget = result;
       previousToolResults.push({
@@ -512,7 +523,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         destination: trip.destination,
         date: trip.start_date?.toISOString().split("T")[0],
       };
-      const result = await eventsAgent.execute(taskData);
+      const result = await mcp.call(eventsAgent.name, taskData);
       await storeEventsData(trip.id, result);
       
       // ✅ Clear old events before storing new ones
@@ -588,31 +599,12 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
         eventsResult: collectedData.events,
         hotelResult: collectedData.hotels,
       };
-      const result = await itineraryAgent.execute(taskData);
+      const result = await mcp.call(itineraryAgent.name, taskData);
       await storeItineraryData(trip.id, result);
       
-      // ✅ Clear old itinerary items before storing new ones
-      await prisma.itineraryItem.deleteMany({ where: { trip_id: trip.id } });
-      
-      // Store itinerary items in database
-      for (const item of result.plan?.items || []) {
-        await prisma.itineraryItem.create({
-          data: {
-            trip_id: trip.id,
-            day_number: item.day_number || 1,
-            title: item.title || "Activity",
-            description: item.description || "",
-            start_time: item.start_time ? new Date(item.start_time) : new Date(),
-            end_time: item.end_time ? new Date(item.end_time) : new Date(),
-            location: item.location || trip.destination,
-            location_coords: item.location_coords || trip.destination_coords || {},
-            category: item.category || "Activity",
-            estimated_cost: item.estimated_cost || 0,
-            sort_order: item.sort_order || 0,
-            created_at: new Date(),
-          },
-        });
-      }
+      // itineraryAgent owns persistence of both the complete plan and its
+      // day-level records. Re-writing here used to delete its just-created
+      // records because `plan` is an array of days, not `{ items: [] }`.
       
       await createAgentTask(itineraryAgent.name, taskData, "SUCCESS", result);
       collectedData.itinerary = result;
@@ -664,7 +656,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
       
       // ✅ mapsAgent.execute() already saves the route to database
       // We don't need to save it again here
-      const result = await mapsAgent.execute(taskData);
+      const result = await mcp.call(mapsAgent.name, taskData);
 
       await createAgentTask(mapsAgent.name, taskData, "SUCCESS", result);
       collectedData.maps = result;
@@ -765,13 +757,11 @@ Trip Details:
 
 Provide a 2-3 sentence summary highlighting the key planning achievements and any important notes.`;
 
-      const aiResponse = await model.invoke([
-        new SystemMessage(
-          "You are a travel assistant. Provide concise, helpful travel planning summaries."
-        ),
-        new HumanMessage(summaryPrompt),
-      ]);
-      aiGeneratedInsights = aiResponse.content;
+      aiGeneratedInsights = await generateGroqText(
+        "You are a travel assistant. Provide concise, helpful travel planning summaries.",
+        summaryPrompt,
+        0.3
+      );
       console.log("[Orchestrator] AI Summary Generated:", aiGeneratedInsights);
     } catch (error) {
       console.warn("[Orchestrator] AI summary generation failed:", error.message);
@@ -849,6 +839,7 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
     console.log(`[Orchestrator] Total Events: ${dbEvents.length}`);
     console.log(`[Orchestrator] Total Budget Items: ${dbBudgetItems.length}`);
 
+    await mcp.close();
     return finalAnswer;
   } catch (error) {
     console.error("[Orchestrator] Critical error:", error.message);
@@ -888,6 +879,7 @@ Provide a 2-3 sentence summary highlighting the key planning achievements and an
       console.error("[Orchestrator] Failed to update trip with error status:", updateError.message);
     }
 
+    await mcp.close();
     return errorResponse;
   }
 }

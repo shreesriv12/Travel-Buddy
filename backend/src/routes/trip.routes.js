@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as tripController from '../controllers/trip.controller.js';
+import { submitFeedback } from '../controllers/feedback.controller.js';
 const router = Router();
 
 // ============================================
@@ -30,6 +31,7 @@ router.get('/:id/trains', authenticate, tripController.getTrains);
 
 // News Data
 router.get('/:id/news', authenticate, tripController.getNews);
+router.get('/:id/reviews', authenticate, tripController.getReviews);
 
 // Budget Data
 router.get('/:id/budget', authenticate, tripController.getBudget);
@@ -49,5 +51,6 @@ router.get('/:id/maps', authenticate, tripController.getMapsData);
 
 // Orchestrator Summary
 router.get('/:id/orchestrator', authenticate, tripController.getOrchestratorSummary);
+router.post('/:id/feedback', authenticate, submitFeedback);
 
 export default router;

@@ -1,137 +1,31 @@
 import prisma from "../config/db.js";
 import { z } from "zod";
-import { getJson } from "serpapi";
 
-// --------------------
-// Validation schema
-// --------------------
-const EventArgs = z.object({
-  tripId: z.string().uuid(),
-  destination: z.string().min(1),
-  date: z.string().optional(),
-});
+const EventArgs = z.object({ tripId: z.string().uuid(), destination: z.string().min(1), date: z.string().optional() });
 
-// --------------------
-// Main execution function
-// --------------------
 async function eventExecute(args) {
   const { tripId, destination, date } = EventArgs.parse(args);
-  const apiKey = process.env.SERPAPI_KEY;
-
-  if (!apiKey) throw new Error("❌ SERPAPI_KEY is not set in environment variables");
-
   try {
-    const query = `Events in ${destination}${date ? ` on ${date}` : ""}`;
-
-    console.log(`[EventsAgent] 🔍 Searching: "${query}"`);
-
-    // Fetch events via SerpApi
-    const json = await new Promise((resolve, reject) => {
-      getJson(
-        {
-          engine: "google_events",
-          q: query,
-          hl: "en",
-          gl: "us",
-          api_key: apiKey,
-        },
-        (res) => {
-          if (!res) reject(new Error("No response from SerpApi"));
-          else resolve(res);
-        }
-      );
-    });
-
-    const events = json.events_results || [];
-
-    console.log(`[EventsAgent] 🌐 Retrieved ${events.length} events from SerpApi.`);
-
-    // Clear existing DB entries for this trip
+    if (!process.env.TICKETMASTER_API_KEY) throw new Error("TICKETMASTER_API_KEY is not configured; no live events provider is available");
+    const url = new URL("https://app.ticketmaster.com/discovery/v2/events.json");
+    url.search = new URLSearchParams({ apikey: process.env.TICKETMASTER_API_KEY, city: destination, countryCode: "IN", size: "50", ...(date ? { startDateTime: `${date}T00:00:00Z`, endDateTime: `${date}T23:59:59Z` } : {}) }).toString();
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Ticketmaster returned ${response.status}`);
+    const payload = await response.json();
+    const events = payload._embedded?.events || [];
     await prisma.event.deleteMany({ where: { trip_id: tripId } });
-
-    // Insert events into DB
-    for (const e of events) {
-      try {
-        await prisma.event.create({
-          data: {
-            trip_id: tripId,
-            title: e.title || "Unknown Event",
-            venue: e.venue?.name || "Unknown Venue",
-            description: e.description || "",
-            location: e.address?.join(", ") || "Unknown Location",
-            start_datetime: e.date?.start_date
-              ? new Date(e.date.start_date)
-              : new Date(),
-            end_datetime: e.date?.end_date
-              ? new Date(e.date.end_date)
-              : new Date(),
-            category: e.category || "General",
-            price: 0,
-            booking_url: e.link || null,
-            is_recommended: false,
-            relevance_score: 0,
-            raw_json: e, // optional full JSON for debugging
-          },
-        });
-      } catch (dbErr) {
-        console.error(`[EventsAgent] ⚠️ DB insert error for event "${e.title}":`, dbErr.message);
-      }
+    for (const event of events) {
+      const venue = event._embedded?.venues?.[0];
+      const start = event.dates?.start?.dateTime || event.dates?.start?.localDate;
+      if (!start) continue;
+      await prisma.event.create({ data: { trip_id: tripId, title: event.name || "Untitled event", venue: venue?.name || "Unknown venue", description: event.info || event.pleaseNote || "", location: venue?.city?.name || destination, start_datetime: new Date(start), end_datetime: event.dates?.end?.dateTime ? new Date(event.dates.end.dateTime) : new Date(start), category: event.classifications?.[0]?.segment?.name || "General", price: event.priceRanges?.[0]?.min || 0, booking_url: event.url || null, is_recommended: false, relevance_score: 0, raw_json: event } });
     }
-
-    // ✅ Fetch back saved events for confirmation
-    const savedEvents = await prisma.event.findMany({
-      where: { trip_id: tripId },
-    });
-
-    console.log(`[EventsAgent] ✅ ${savedEvents.length} events saved to database:`);
-    console.table(
-      savedEvents.map((e) => ({
-        title: e.title,
-        venue: e.venue,
-        location: e.location,
-        start_datetime: e.start_datetime.toISOString().split("T")[0],
-        booking_url: e.booking_url,
-      }))
-    );
-
-    // Prepare API output
-    const output = {
-      summary: `Found ${events.length} events for ${destination}${date ? " on " + date : ""}`,
-      events: events.map((e) => ({
-        name: e.title || "Unknown Event",
-        venue: e.venue?.name || "Unknown Venue",
-        location: e.address?.join(", ") || "Unknown Location",
-        start_time: e.date?.start_date || null,
-        url: e.link || null,
-      })),
-    };
-
-    console.log("[EventsAgent] 🎯 Output summary:", output.summary);
-    return output;
-  } catch (err) {
-    console.error(`[EventsAgent] ❌ Error:`, err.message);
-    return {
-      summary: `No events found for ${destination}`,
-      events: [],
-    };
+    return { summary: events.length ? `Found ${events.length} live Ticketmaster events for ${destination}.` : `No live Ticketmaster events found for ${destination}.`, dataSource: "Ticketmaster", events: events.map((event) => ({ name: event.name, venue: event._embedded?.venues?.[0]?.name || "Unknown venue", location: event._embedded?.venues?.[0]?.city?.name || destination, start_time: event.dates?.start?.dateTime || event.dates?.start?.localDate || null, url: event.url || null })) };
+  } catch (error) {
+    console.error("[EventsAgent] Live event search failed:", error.message);
+    await prisma.event.deleteMany({ where: { trip_id: tripId } });
+    return { summary: `Live events are unavailable: ${error.message}`, events: [], unavailable: true, error: error.message };
   }
 }
 
-// --------------------
-// Agent definition
-// --------------------
-export const eventsAgent = {
-  name: "eventsAgent",
-  description: "Fetches upcoming events for a destination and stores them in DB.",
-  jsonSchema: {
-    type: "object",
-    properties: {
-      tripId: { type: "string" },
-      destination: { type: "string" },
-      date: { type: "string" },
-    },
-    required: ["tripId", "destination"],
-  },
-  validate: (args) => EventArgs.parse(args),
-  execute: eventExecute,
-};
+export const eventsAgent = { name: "eventsAgent", description: "Fetches provider-backed destination events and stores them in DB.", jsonSchema: { type: "object", properties: { tripId: { type: "string" }, destination: { type: "string" }, date: { type: "string" } }, required: ["tripId", "destination"] }, validate: (args) => EventArgs.parse(args), execute: eventExecute };

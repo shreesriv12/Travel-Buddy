@@ -37,6 +37,8 @@ interface TripSummary {
   budget: {
     total: number;
     itemsCount: number;
+    currency: string;
+    requestedTotal: number;
   };
   weather: {
     avgTemp: number;
@@ -54,6 +56,12 @@ interface TripSummary {
   routes: {
     count: number;
   };
+  agentExecution: Array<{
+    name: string;
+    status: string;
+    summary: string | null;
+    error: string | null;
+  }>;
 }
 
 export default function TripOverviewPage() {
@@ -165,7 +173,7 @@ export default function TripOverviewPage() {
       title: 'Budget Breakdown',
       icon: DollarSign,
       path: `/dashboard/trip/${tripId}/budget`,
-      stat: summary ? `$${summary.budget.total.toLocaleString()}` : 'N/A',
+      stat: summary ? `${summary.budget.currency} ${summary.budget.total.toLocaleString()}` : 'N/A',
       color: 'bg-green-500'
     },
     {
@@ -311,7 +319,7 @@ export default function TripOverviewPage() {
           }`}>
             <div className="flex items-center justify-between mb-2">
               <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>
-                Total Budget
+                Live quotes total
               </span>
               <DollarSign className={`w-5 h-5 ${
                 theme === 'dark' ? 'text-green-400' : 'text-green-600'
@@ -320,12 +328,12 @@ export default function TripOverviewPage() {
             <p className={`text-3xl font-bold ${
               theme === 'dark' ? 'text-white' : 'text-gray-900'
             }`}>
-              ${summary.budget.total.toLocaleString()}
+              {summary.budget.currency} {summary.budget.total.toLocaleString()}
             </p>
             <p className={`text-sm mt-1 ${
               theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
             }`}>
-              {summary.budget.itemsCount} budget items
+              {summary.budget.itemsCount} budget items · requested limit: {summary.budget.currency} {summary.budget.requestedTotal.toLocaleString()}
             </p>
           </div>
 
@@ -389,6 +397,34 @@ export default function TripOverviewPage() {
         </div>
 
         {/* Navigation Cards */}
+        <section className={`rounded-xl p-6 shadow-sm mb-8 ${
+          theme === 'dark' ? 'bg-gray-800/50 backdrop-blur-sm' : 'bg-white/80 backdrop-blur-sm'
+        }`}>
+          <h2 className={`text-2xl font-bold mb-2 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+            WEBSTER agent roundtable
+          </h2>
+          <p className={`text-sm mb-5 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+            Each specialist contributes evidence to one shared trip plan.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {summary.agentExecution.map((agent) => (
+              <div key={agent.name} className={`rounded-lg border p-4 ${
+                theme === 'dark' ? 'border-gray-600 bg-gray-700/40' : 'border-gray-200 bg-white'
+              }`}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{agent.name}</span>
+                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    agent.status === 'SUCCESS' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                  }`}>{agent.status === 'SUCCESS' ? 'Ready' : 'Needs attention'}</span>
+                </div>
+                <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {agent.summary || agent.error || 'No detail was returned by this agent.'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <div className={`rounded-xl p-6 shadow-sm ${
           theme === 'dark' 
             ? 'bg-gray-800/50 backdrop-blur-sm' 

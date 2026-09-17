@@ -2,6 +2,12 @@ import { getJson } from "serpapi";
 import { z } from "zod";
 import prisma from "../config/db.js";
 
+const numericPrice = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const match = String(value ?? "").replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+};
+
 // --------------------
 // Argument schema
 // --------------------
@@ -26,8 +32,8 @@ async function hotelsExecute(args) {
   try {
     console.log(`[HotelsAgent] Searching hotels in: ${destination} from ${checkin} to ${checkout}`);
 
-    const response = await new Promise((resolve, reject) => {
-      getJson({
+    if (!process.env.SERPAPI_KEY) throw new Error("SERPAPI_KEY is not configured");
+    const response = await getJson({
         engine: "google_hotels",
         q: `hotels in ${destination}`,
         check_in_date: checkin,
@@ -40,67 +46,37 @@ async function hotelsExecute(args) {
               sortBy === 'price_high' ? 'price_high' :
               sortBy === 'rating' ? 'review_score' : 'relevance',
         api_key: process.env.SERPAPI_KEY,
-      }, (result) => {
-        if (!result) {
-          reject(new Error("No response from SerpApi"));
-          return;
-        }
-
-        if (result.error) {
-          reject(new Error(result.error));
-          return;
-        }
-
-        resolve(result);
       });
-    });
+    if (!response) throw new Error("No response from SerpApi");
+    if (response.error) throw new Error(response.error);
 
-    const hotels = response.properties?.map((hotel, index) => ({
+    const nights = Math.max(1, Math.ceil((new Date(checkout) - new Date(checkin)) / 86400000));
+    const hotels = (response.properties || []).map((hotel, index) => {
+      const price = numericPrice(hotel.rate_per_night?.lowest ?? hotel.rate_per_night?.extracted_lowest ?? hotel.extracted_lowest_price ?? hotel.total_rate?.lowest);
+      return {
       id: `hotel_${index + 1}`,
       name: hotel.name || 'Unknown Hotel',
       rating: hotel.rating || 0,
       reviewCount: hotel.reviews || 0,
-      price: hotel.rate_per_night?.lowest || hotel.rate_per_night?.median || 0,
+      price,
       currency: hotel.rate_per_night?.currency || currency,
       priceDescription: hotel.rate_per_night?.description || 'Price not available',
       address: hotel.address || 'Address not available',
       thumbnail: hotel.thumbnail || null,
+      image: hotel.thumbnail || null,
       amenities: hotel.amenities || [],
       description: hotel.description || 'No description available',
       checkinDate: checkin,
       checkoutDate: checkout,
-      totalNights: Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
-      totalPrice: (hotel.rate_per_night?.lowest || hotel.rate_per_night?.median || 0) *
-                  Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
+      totalNights: nights,
+      totalPrice: price * nights,
       bookingLink: hotel.link || null,
       position: index + 1,
       type: hotel.type || 'hotel'
-    })) || [];
+    };
+    });
 
     console.log(`[HotelsAgent] Found ${hotels.length} hotels`);
-
-    if (hotels.length === 0) {
-      hotels.push({
-        id: 'fallback_1',
-        name: `Hotels in ${destination}`,
-        rating: 4.0,
-        reviewCount: 100,
-        price: 150,
-        currency: currency,
-        priceDescription: 'Estimated price per night',
-        address: `${destination} City Center`,
-        thumbnail: null,
-        amenities: ['Free WiFi', 'Air Conditioning', 'Swimming Pool'],
-        description: `Comfortable accommodation in ${destination} with modern amenities and great service.`,
-        checkinDate: checkin,
-        checkoutDate: checkout,
-        totalNights: Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
-        totalPrice: 150 * Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
-        bookingLink: null,
-        position: 1,
-        type: 'hotel'
-      });
-    }
 
     const prices = hotels.map(h => h.price).filter(p => p > 0);
     const priceStats = {
@@ -110,7 +86,7 @@ async function hotelsExecute(args) {
     };
 
     const result = {
-      summary: `Found ${hotels.length} hotels in ${destination} from ${checkin} to ${checkout}. Price range: ${priceStats.min}-${priceStats.max} ${currency} per night.`,
+      summary: hotels.length ? `Found ${hotels.length} live hotel results in ${destination}. Prices shown only where supplied by SerpApi.` : `No live hotel results were returned for ${destination}.`,
       destination: destination,
       checkin: checkin,
       checkout: checkout,
@@ -133,45 +109,23 @@ async function hotelsExecute(args) {
     return result;
 
   } catch (err) {
-    console.error("HotelsAgent Error:", err.message);
-
-    const fallbackHotels = [
-      {
-        id: 'fallback_1',
-        name: `Recommended Hotels in ${destination}`,
-        rating: 4.2,
-        reviewCount: 150,
-        price: 120,
-        currency: currency,
-        priceDescription: 'Estimated price per night',
-        address: `${destination} Central Area`,
-        thumbnail: null,
-        amenities: ['Free WiFi', 'Breakfast Included', 'Swimming Pool', 'Fitness Center'],
-        description: `Quality accommodation in ${destination} with excellent service and convenient location.`,
-        checkinDate: checkin,
-        checkoutDate: checkout,
-        totalNights: Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
-        totalPrice: 120 * Math.ceil((new Date(checkout) - new Date(checkin)) / (1000 * 60 * 60 * 24)),
-        bookingLink: null,
-        position: 1,
-        type: 'hotel'
-      }
-    ];
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("HotelsAgent Error:", reason);
 
     const errorResult = {
-      summary: `Using fallback hotel data for ${destination}. Original error: ${err.message}`,
+      summary: `Live hotel search is unavailable: ${reason}`,
       destination: destination,
       checkin: checkin,
       checkout: checkout,
-      totalHotels: fallbackHotels.length,
-      priceStatistics: { min: 120, max: 120, average: 120 },
+      totalHotels: 0,
+      priceStatistics: { min: 0, max: 0, average: 0 },
       currency: currency,
-      hotels: fallbackHotels,
+      hotels: [],
       searchParams: { adults, children, rooms, sortBy },
-      error: err.message
+      error: reason
     };
 
-    // Store the fallback data in the database if an error occurs
+    // Store the provider failure, never invented accommodation data.
     if (tripId) {
         await prisma.trip.update({
             where: { id: tripId },
