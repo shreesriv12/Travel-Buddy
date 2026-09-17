@@ -281,6 +281,9 @@ Plan a 4-day trip for 2 adults from Mumbai to Goa from 10 October 2026 to 14 Oct
 ## Security checklist
 
 - Keep `.env` private and out of Git.
+
 - Regenerate any key that has ever been pasted into chat, terminal output, a commit, or a screenshot.
+
 - Never expose backend provider keys through `NEXT_PUBLIC_*` variables.
+
 - Before submitting to a hackathon, test the public GitHub repository and demo video in an incognito window.
