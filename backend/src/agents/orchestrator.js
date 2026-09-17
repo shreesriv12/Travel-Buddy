@@ -8,6 +8,7 @@ import { mapsAgent } from "./mapsAgent.js";
 import { flightAgent } from "./flightAgent.js";
 import { newsAgent } from "./newsAgent.js";
 import { reviewsAgent } from "./reviewsAgent.js";
+import { destinationDiscoveryAgent } from "./destinationDiscoveryAgent.js";
 import { hotelsAgent } from "./hotelsAgent.js";
 import { trainAgent } from "./trainAgent.js";
 import prisma from "../config/db.js";
@@ -180,6 +181,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     hotels: null,
     news: null,
     reviews: null,
+    discovery: null,
     weather: null,
     events: null,
     itinerary: null,
@@ -188,7 +190,7 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
   };
 
   let successfulTools = 0;
-  const totalTools = 10;
+  const totalTools = 11;
   const mcp = await createTravelMcpClient();
 
   try {
@@ -486,6 +488,19 @@ export async function runMCPOrchestrator(trip, { maxSteps = 10 } = {}) {
     } catch (error) {
       await createAgentTask(reviewsAgent.name, { tripId: trip.id, destination: trip.destination, maxPlaces: 3 }, "FAILED", null, error);
       previousToolResults.push({ tool: reviewsAgent.name, status: "FAILED", resultSummary: "Reviews search failed", error: error.message });
+    }
+
+    console.log("[Orchestrator] Executing destinationDiscoveryAgent...");
+    try {
+      const taskData = { tripId: trip.id, origin: trip.origin, departureDate: trip.start_date?.toISOString().slice(0, 10), returnDate: trip.end_date?.toISOString().slice(0, 10), currency: trip.summary?.currency || "INR" };
+      const result = await mcp.call(destinationDiscoveryAgent.name, taskData);
+      await createAgentTask(destinationDiscoveryAgent.name, taskData, "SUCCESS", result);
+      collectedData.discovery = result;
+      previousToolResults.push({ tool: destinationDiscoveryAgent.name, status: "SUCCESS", resultSummary: result.summary, result });
+      successfulTools++;
+    } catch (error) {
+      await createAgentTask(destinationDiscoveryAgent.name, { tripId: trip.id, origin: trip.origin }, "FAILED", null, error);
+      previousToolResults.push({ tool: destinationDiscoveryAgent.name, status: "FAILED", resultSummary: "Destination discovery failed", error: error.message });
     }
 
     console.log("[Orchestrator] Executing budgetAgent...");

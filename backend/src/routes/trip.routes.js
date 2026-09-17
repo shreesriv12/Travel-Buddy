@@ -32,6 +32,7 @@ router.get('/:id/trains', authenticate, tripController.getTrains);
 // News Data
 router.get('/:id/news', authenticate, tripController.getNews);
 router.get('/:id/reviews', authenticate, tripController.getReviews);
+router.get('/:id/destinations', authenticate, tripController.getDestinationDiscovery);
 
 // Budget Data
 router.get('/:id/budget', authenticate, tripController.getBudget);

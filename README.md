@@ -9,9 +9,10 @@ The project was built for the SerpApi Travel & Local Discovery track. SerpApi pr
 - Create and save trips with authentication, dates, traveler count, origin, destination, and budget.
 - Search live flight and hotel options using SerpApi.
 - Search current destination news using SerpApi Google News.
+- Suggest flight and hotel-backed destination ideas using SerpApi Google Travel Explore.
 - Find attractions, ratings, and visitor review excerpts using SerpApi Google Maps and Google Maps Reviews.
 - Calculate and draw an Amazon Location driving route in the trip UI.
-- Find live local events with Ticketmaster when a key is configured.
+- Find live local events with SerpApi Google Events.
 - Build a budget from returned flight and hotel data.
 - Generate a day-by-day itinerary with Groq.
 - Show the result of every MCP tool in the WEBSTER-style roundtable.
@@ -44,7 +45,7 @@ Important: MCP is the agent communication layer. It does not itself supply trave
 | Backend | Node.js, Express, Prisma, PostgreSQL |
 | Agent protocol | Model Context Protocol SDK over stdio |
 | AI | Groq OpenAI-compatible API |
-| Live travel data | SerpApi, Amazon Location, Ticketmaster |
+| Live travel data | SerpApi, Amazon Location |
 | Background/realtime | Socket.IO, Bull, Redis (optional) |
 
 ## Repository layout
@@ -68,7 +69,7 @@ Travel-Buddy/
 - PostgreSQL 14+
 - A SerpApi key for live flight, hotel, news, maps, and review data
 
-Optional: Groq API key, Amazon Location API key, Ticketmaster API key, SMTP credentials, Redis, and Google OAuth credentials.
+Optional: Groq API key, Amazon Location API key, SMTP credentials, Redis, and Google OAuth credentials.
 
 ## Installation
 
@@ -113,9 +114,6 @@ GEOAPIFY_API_KEY="your_geoapify_key"
 AMAZON_LOCATION_API_KEY="your_aws_location_api_key"
 AWS_REGION="us-east-1"
 AMAZON_LOCATION_MAP_STYLE="Standard"
-
-# Optional live events
-TICKETMASTER_API_KEY="your_ticketmaster_key"
 
 # Optional email; Gmail requires an app password
 EMAIL_USER="you@example.com"
@@ -225,8 +223,9 @@ Then add `REDIS_URL=redis://127.0.0.1:6379` to `backend/.env` and restart the ba
 | `hotelsAgent` | SerpApi live hotel search |
 | `newsAgent` | SerpApi Google News |
 | `reviewsAgent` | SerpApi Google Maps + Google Maps Reviews |
+| `destinationDiscoveryAgent` | SerpApi Google Travel Explore destination ideas |
 | `budgetAgent` | Calculates from available trip results |
-| `eventsAgent` | Ticketmaster event discovery |
+| `eventsAgent` | SerpApi Google Events |
 | `itineraryAgent` | Groq itinerary generation, informed by feedback |
 | `mapsTool` | Amazon Location Routes v2 |
 
@@ -246,6 +245,7 @@ All protected endpoints require `Authorization: Bearer YOUR_JWT`.
 | `GET /api/trips/:id/hotels` | Hotel results |
 | `GET /api/trips/:id/news` | Destination news |
 | `GET /api/trips/:id/reviews` | SerpApi attraction reviews |
+| `GET /api/trips/:id/destinations` | SerpApi destination-discovery options |
 | `GET /api/trips/:id/routes` | Saved Amazon Location route geometry |
 | `GET /api/notifications` | Persisted alerts |
 | `POST /api/trips/:id/feedback` | Save feedback for future itinerary preferences |

@@ -1,0 +1,1 @@
+ALTER TABLE "Trip" ADD COLUMN "discovery_data" JSONB DEFAULT NULL;

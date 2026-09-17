@@ -905,3 +905,15 @@ export const getReviews = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch reviews' });
   }
 };
+
+export const getDestinationDiscovery = async (req, res) => {
+  try {
+    const trip = await prisma.trip.findFirst({ where: { id: req.params.id, user_id: req.user.userId }, select: { discovery_data: true } });
+    if (!trip) return res.status(404).json({ error: 'Trip not found' });
+    if (!trip.discovery_data) return res.status(404).json({ error: 'No destination discovery data found' });
+    res.json(trip.discovery_data);
+  } catch (error) {
+    console.error('Error fetching destination discovery:', error);
+    res.status(500).json({ error: 'Failed to fetch destination discovery' });
+  }
+};

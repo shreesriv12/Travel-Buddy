@@ -43,6 +43,7 @@ model Trip {
   trains_data       Json?          @default("null")
   news_data       Json?            @default("null")      // JSON data for news/articles
   reviews_data    Json?            @default("null")
+  discovery_data  Json?            @default("null")
    
   created_at           DateTime         @default(now())
   updated_at           DateTime         @updatedAt

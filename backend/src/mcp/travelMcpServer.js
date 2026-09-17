@@ -12,6 +12,7 @@ import { eventsAgent } from "../agents/eventsAgent.js";
 import { itineraryAgent } from "../agents/itineraryAgent.js";
 import { mapsAgent } from "../agents/mapsAgent.js";
 import { reviewsAgent } from "../agents/reviewsAgent.js";
+import { destinationDiscoveryAgent } from "../agents/destinationDiscoveryAgent.js";
 
 // Stdio is the MCP JSON-RPC channel. Agent diagnostics must never be written
 // to stdout or they would corrupt protocol messages.
@@ -19,7 +20,7 @@ console.log = (...args) => console.error(...args);
 console.warn = (...args) => console.error(...args);
 
 const server = new McpServer({ name: "webster-travel-tools", version: "1.0.0" });
-const agents = [weatherAgent, flightAgent, trainAgent, hotelsAgent, newsAgent, reviewsAgent, budgetAgent, eventsAgent, itineraryAgent, mapsAgent];
+const agents = [weatherAgent, flightAgent, trainAgent, hotelsAgent, newsAgent, reviewsAgent, destinationDiscoveryAgent, budgetAgent, eventsAgent, itineraryAgent, mapsAgent];
 
 for (const agent of agents) {
   server.registerTool(agent.name, {
